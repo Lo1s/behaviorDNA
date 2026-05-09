@@ -1,6 +1,6 @@
-# BehaviorDNA 
+# BehaviorDNA 🎮🧬
 
-> **Player behavioral biometrics from raw input telemetry.**  
+> **Player behavioral biometrics from raw input telemetry.**
 > Can we identify *who* is playing — or detect automation — purely from mouse and keyboard patterns?
 
 ---
@@ -125,8 +125,9 @@ dvc repro
 ## Roadmap
 
 - [x] Project structure & repo setup
-- [ ] Data collector (Windows, pynput)
-- [ ] Ingestion pipeline (JSON → Parquet)
+- [x] Data collector (Windows, pynput) — GUI + standalone .exe via PyInstaller
+- [x] Ethics & safety documentation
+- [x] Ingestion pipeline (JSON → Parquet)
 - [ ] Feature engineering module
 - [ ] Anomaly detection model (Isolation Forest / Autoencoder)
 - [ ] Player identification model (LightGBM)
@@ -140,11 +141,13 @@ dvc repro
 
 ## Why this project?
 
-Built as a portfolio piece targeting the behavioral biometrics / anti-cheat domain.  
+Built as a portfolio piece targeting the behavioral biometrics / anti-cheat domain.
 Demonstrates: data engineering, feature design, MLOps pipelines, model deployment — not just a notebook.
 
 ---
 
-## Ethics note
+## Ethics & safety
 
-This project operates **entirely at the OS input level** — no game memory reading, no packet sniffing, no anti-cheat bypass. All data is collected with participant consent for research purposes.
+This project operates entirely at the OS input level — no game memory reading, no packet sniffing, no anti-cheat bypass. All data is collected with explicit participant consent for research purposes.
+
+See [docs/ETHICS.md](docs/ETHICS.md) for full details on data collection methodology, anti-cheat compatibility per game, consent process, and data privacy.
