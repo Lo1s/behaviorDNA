@@ -27,4 +27,4 @@ data:
 
 mlflow:
   experiment_name: behaviorDNA
-  tracking_uri: https://dagshub.com/YOUR_USERNAME/behaviorDNA.mlflow
+  tracking_uri: https://dagshub.com/Lo1s/behaviorDNA.mlflow
