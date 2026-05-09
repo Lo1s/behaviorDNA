@@ -44,3 +44,7 @@ Thumbs.db
 .env
 *.env
 dagshub_token.txt
+collector/BehaviorDNA_Recorder.exe
+collector/dist/
+collector/build/
+collector/*.spec
