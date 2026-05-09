@@ -1,7 +1,7 @@
 [core]
     no_scm = True
-    remote = myremote
+    remote = origin
 ['remote "origin"']
-    url = https://dagshub.com/Lo1s/behaviorDNA.mlflow
+    url = https://dagshub.com/Lo1s/behaviorDNA.dvc
 ['remote "myremote"']
     url = /tmp/dvc-storage
