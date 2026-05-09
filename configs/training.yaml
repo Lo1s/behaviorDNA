@@ -1,0 +1,30 @@
+# configs/training.yaml
+# Central config for all training runs — consumed by pipeline/training/run.py
+
+model:
+  type: lightgbm          # options: lightgbm | isolation_forest | autoencoder | lstm
+  task: identification    # options: identification | anomaly_detection
+
+lightgbm:
+  num_leaves: 63
+  learning_rate: 0.05
+  n_estimators: 300
+  min_child_samples: 20
+  subsample: 0.8
+  colsample_bytree: 0.8
+  class_weight: balanced
+
+isolation_forest:
+  n_estimators: 200
+  contamination: 0.05     # expected fraction of anomalous sessions
+  max_features: 1.0
+
+data:
+  test_size: 0.15
+  val_size: 0.15
+  random_seed: 42
+  min_sessions_per_player: 3   # drop players with too few sessions
+
+mlflow:
+  experiment_name: behaviorDNA
+  tracking_uri: https://dagshub.com/YOUR_USERNAME/behaviorDNA.mlflow

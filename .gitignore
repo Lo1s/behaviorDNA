@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Data — managed by DVC, not Git
+data/raw/*
+data/processed/*
+data/splits/*
+!data/**/.gitkeep
+
+# Models — managed by DVC
+models/*.pkl
+models/*.onnx
+models/*.pt
+!models/.gitkeep
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Hydra outputs
+outputs/
+.hydra/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.env
+dagshub_token.txt

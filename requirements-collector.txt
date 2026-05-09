@@ -1,0 +1,5 @@
+# Collector — Windows-only dependencies
+# Install on your Windows host (NOT in WSL):
+# pip install -r requirements-collector.txt
+
+pynput>=1.7

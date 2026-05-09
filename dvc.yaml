@@ -1,0 +1,52 @@
+stages:
+  ingest:
+    cmd: python pipeline/ingestion/run.py
+    deps:
+      - pipeline/ingestion/run.py
+      - data/raw
+    outs:
+      - data/processed/sessions.parquet
+
+  features:
+    cmd: python pipeline/features/run.py
+    deps:
+      - pipeline/features/run.py
+      - data/processed/sessions.parquet
+    outs:
+      - data/processed/features.parquet
+
+  split:
+    cmd: python pipeline/features/split.py
+    deps:
+      - pipeline/features/split.py
+      - data/processed/features.parquet
+    outs:
+      - data/splits/train.parquet
+      - data/splits/val.parquet
+      - data/splits/test.parquet
+
+  train:
+    cmd: python pipeline/training/run.py
+    deps:
+      - pipeline/training/run.py
+      - data/splits/train.parquet
+      - data/splits/val.parquet
+      - configs/training.yaml
+    outs:
+      - models/model.pkl
+    metrics:
+      - reports/train_metrics.json:
+          cache: false
+
+  evaluate:
+    cmd: python pipeline/evaluation/run.py
+    deps:
+      - pipeline/evaluation/run.py
+      - models/model.pkl
+      - data/splits/test.parquet
+    metrics:
+      - reports/eval_metrics.json:
+          cache: false
+    plots:
+      - reports/confusion_matrix.csv:
+          cache: false
