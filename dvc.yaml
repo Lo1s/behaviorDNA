@@ -12,6 +12,7 @@ stages:
     deps:
       - pipeline/features/run.py
       - data/processed/sessions.parquet
+      - data/processed/events.parquet
     outs:
       - data/processed/features.parquet
 
@@ -20,6 +21,7 @@ stages:
     deps:
       - pipeline/features/split.py
       - data/processed/features.parquet
+      - configs/training.yaml
     outs:
       - data/splits/train.parquet
       - data/splits/val.parquet
