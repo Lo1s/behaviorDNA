@@ -128,7 +128,7 @@ dvc repro
 - [x] Data collector (Windows, pynput) — GUI + standalone .exe via PyInstaller
 - [x] Ethics & safety documentation
 - [x] Ingestion pipeline (JSON → Parquet)
-- [ ] Feature engineering module
+- [x] Feature engineering module
 - [ ] Anomaly detection model (Isolation Forest / Autoencoder)
 - [ ] Player identification model (LightGBM)
 - [ ] MLflow experiment tracking
