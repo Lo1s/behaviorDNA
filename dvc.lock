@@ -10,10 +10,30 @@ stages:
       nfiles: 2
     - path: pipeline/ingestion/run.py
       hash: md5
-      md5: 8d05decb3bf88a2381334cefece474db
-      size: 6110
+      md5: 159279c6bd3f5958b2635aa808996afa
+      size: 6200
     outs:
     - path: data/processed/sessions.parquet
       hash: md5
       md5: 9db9851b2f7e748c10f76bdb33a599f0
       size: 5941
+  features:
+    cmd: python pipeline/features/run.py
+    deps:
+    - path: data/processed/events.parquet
+      hash: md5
+      md5: 045f1eae1e40679b512634e74984b2bf
+      size: 368628
+    - path: data/processed/sessions.parquet
+      hash: md5
+      md5: 9db9851b2f7e748c10f76bdb33a599f0
+      size: 5941
+    - path: pipeline/features/run.py
+      hash: md5
+      md5: 88cc18a1441352eafd166a69ef4c46c9
+      size: 10737
+    outs:
+    - path: data/processed/features.parquet
+      hash: md5
+      md5: c7d73505a498355784b24f729ad7b06e
+      size: 15872

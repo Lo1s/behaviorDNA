@@ -1,0 +1,16 @@
+cmd: python pipeline/ingestion/run.py
+deps:
+- path: data/raw
+  hash: md5
+  md5: 890410f971569e2e59e5c40a0c388abb.dir
+  size: 2579387
+  nfiles: 2
+- path: pipeline/ingestion/run.py
+  hash: md5
+  md5: 159279c6bd3f5958b2635aa808996afa
+  size: 6200
+outs:
+- path: data/processed/sessions.parquet
+  hash: md5
+  md5: 9db9851b2f7e748c10f76bdb33a599f0
+  size: 5941
