@@ -129,11 +129,12 @@ dvc repro
 - [x] Ethics & safety documentation
 - [x] Ingestion pipeline (JSON → Parquet)
 - [x] Feature engineering module
-- [ ] Anomaly detection model (Isolation Forest / Autoencoder)
-- [ ] Player identification model (LightGBM)
-- [ ] MLflow experiment tracking
-- [ ] ONNX model export
-- [ ] FastAPI inference endpoint
+- [x] Anomaly detection model (Isolation Forest / Autoencoder)
+- [x] Player identification model (LightGBM)
+- [x] MLflow experiment tracking
+- [x] ONNX model export
+- [x] FastAPI inference endpoint
+- [ ] Test suite (features, split, training, evaluation, API)
 - [ ] GitHub Actions CI/CD
 - [ ] DagsHub integration
 

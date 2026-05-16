@@ -11,6 +11,10 @@ env/
 dist/
 build/
 
+# DVC internals
+.dvc/cache/
+.dvc/tmp/
+
 # Data — managed by DVC, not Git
 data/raw/*
 data/processed/*

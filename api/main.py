@@ -1,0 +1,205 @@
+"""
+api/main.py
+===========
+BehaviorDNA FastAPI inference endpoint.
+
+Loads models/model.pkl once at startup and exposes three endpoints:
+
+  GET  /health          — model type, trained status, feature count
+  POST /predict/player  — LightGBM player identification
+  POST /predict/anomaly — IsolationForest anomaly scoring
+
+Both prediction endpoints return HTTP 400 if the loaded model type does not
+match the endpoint, and HTTP 503 if the model has not been trained yet.
+
+Run from the project root:
+    uvicorn api.main:app --reload
+"""
+
+import logging
+import pickle
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
+
+from pipeline.features.run import FEATURE_COLS
+
+log = logging.getLogger(__name__)
+
+ROOT = Path(__file__).parent.parent
+MODEL_PATH = ROOT / "models" / "model.pkl"
+
+
+# ---------------------------------------------------------------------------
+# Pydantic schemas
+# ---------------------------------------------------------------------------
+
+
+class FeatureVector(BaseModel):
+    session_id: str
+    speed_mean: Optional[float] = None
+    speed_std: Optional[float] = None
+    accel_mean: Optional[float] = None
+    accel_std: Optional[float] = None
+    jitter: Optional[float] = None
+    click_interval_mean: Optional[float] = None
+    click_interval_std: Optional[float] = None
+    hold_mean: Optional[float] = None
+    hold_std: Optional[float] = None
+    iki_mean: Optional[float] = None
+    iki_std: Optional[float] = None
+    burst_rate: Optional[float] = None
+    wasd_rhythm: Optional[float] = None
+    event_rate: Optional[float] = None
+    mouse_key_ratio: Optional[float] = None
+    active_time_pct: Optional[float] = None
+    scroll_count: Optional[float] = None
+    scroll_direction_ratio: Optional[float] = None
+
+
+class PlayerPrediction(BaseModel):
+    session_id: str
+    predicted_player: str
+    probabilities: dict[str, float]
+
+
+class AnomalyPrediction(BaseModel):
+    session_id: str
+    anomaly_score: float
+    is_anomaly: bool
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _vec_to_array(vec: FeatureVector) -> np.ndarray:
+    """Convert Pydantic model to (1, 18) float64 array. None → 0.0 (matches training fillna)."""
+    vals = [getattr(vec, col) or 0.0 for col in FEATURE_COLS]
+    return np.array(vals, dtype=np.float64).reshape(1, -1)
+
+
+def _get_artifact(request: Request) -> dict:
+    return request.app.state.artifact
+
+
+def _require_model_type(artifact: dict, expected: str) -> None:
+    if artifact["model_type"] != expected:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Loaded model type is '{artifact['model_type']}', "
+                f"not '{expected}'. Use the matching endpoint."
+            ),
+        )
+
+
+def _require_trained(artifact: dict) -> None:
+    if not artifact.get("trained", False):
+        raise HTTPException(
+            status_code=503,
+            detail="Model has not been trained yet. Collect more sessions and run 'dvc repro'.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Lifespan — load model once at startup
+# ---------------------------------------------------------------------------
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if MODEL_PATH.exists():
+        with open(MODEL_PATH, "rb") as f:
+            artifact = pickle.load(f)
+        log.info(
+            "Loaded model: type=%s  trained=%s  features=%d",
+            artifact.get("model_type"),
+            artifact.get("trained"),
+            len(artifact.get("feature_cols", [])),
+        )
+    else:
+        log.warning("models/model.pkl not found — serving health endpoint only.")
+        artifact = {
+            "model_type": "none",
+            "trained": False,
+            "feature_cols": FEATURE_COLS,
+        }
+    app.state.artifact = artifact
+    yield
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+
+app = FastAPI(
+    title="BehaviorDNA Inference API",
+    description="Player behavioral biometrics — identification and anomaly detection.",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+
+@app.get("/health")
+def health(request: Request) -> dict:
+    """Returns model type, trained status, and feature count."""
+    artifact = _get_artifact(request)
+    return {
+        "model_type": artifact.get("model_type"),
+        "trained": artifact.get("trained", False),
+        "feature_count": len(artifact.get("feature_cols", FEATURE_COLS)),
+        "classes": artifact.get("classes"),
+    }
+
+
+@app.post("/predict/player", response_model=PlayerPrediction)
+def predict_player(vec: FeatureVector, request: Request) -> PlayerPrediction:
+    """Identify the player from a 30s behavioral window using LightGBM."""
+    artifact = _get_artifact(request)
+    _require_model_type(artifact, "lightgbm")
+    _require_trained(artifact)
+
+    X = _vec_to_array(vec)
+    X_scaled = artifact["scaler"].transform(X)
+    model = artifact["model"]
+    le = artifact["label_encoder"]
+
+    pred_idx = int(model.predict(X_scaled)[0])
+    predicted_player = le.classes_[pred_idx]
+
+    proba = model.predict_proba(X_scaled)[0]
+    probabilities = {cls: float(p) for cls, p in zip(le.classes_, proba)}
+
+    return PlayerPrediction(
+        session_id=vec.session_id,
+        predicted_player=predicted_player,
+        probabilities=probabilities,
+    )
+
+
+@app.post("/predict/anomaly", response_model=AnomalyPrediction)
+def predict_anomaly(vec: FeatureVector, request: Request) -> AnomalyPrediction:
+    """Score a 30s behavioral window for automation/bot anomalies using IsolationForest."""
+    artifact = _get_artifact(request)
+    _require_model_type(artifact, "isolation_forest")
+    _require_trained(artifact)
+
+    X = _vec_to_array(vec)
+    X_scaled = artifact["scaler"].transform(X)
+    model = artifact["model"]
+
+    score = float(model.score_samples(X_scaled)[0])
+    pred = int(model.predict(X_scaled)[0])
+    is_anomaly = pred == -1
+
+    return AnomalyPrediction(
+        session_id=vec.session_id,
+        anomaly_score=score,
+        is_anomaly=is_anomaly,
+    )

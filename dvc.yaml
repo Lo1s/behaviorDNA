@@ -28,7 +28,7 @@ stages:
       - data/splits/test.parquet
 
   train:
-    cmd: python pipeline/training/run.py
+    cmd: python -m pipeline.training.run
     deps:
       - pipeline/training/run.py
       - data/splits/train.parquet
@@ -36,16 +36,18 @@ stages:
       - configs/training.yaml
     outs:
       - models/model.pkl
+      - models/model.onnx
     metrics:
       - reports/train_metrics.json:
           cache: false
 
   evaluate:
-    cmd: python pipeline/evaluation/run.py
+    cmd: python -m pipeline.evaluation.run
     deps:
       - pipeline/evaluation/run.py
       - models/model.pkl
       - data/splits/test.parquet
+      - configs/training.yaml
     metrics:
       - reports/eval_metrics.json:
           cache: false
