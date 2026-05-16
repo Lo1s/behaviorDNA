@@ -134,7 +134,7 @@ dvc repro
 - [x] MLflow experiment tracking
 - [x] ONNX model export
 - [x] FastAPI inference endpoint
-- [ ] Test suite (features, split, training, evaluation, API)
+- [x] Test suite (features, split, training, evaluation, API)
 - [ ] GitHub Actions CI/CD
 - [ ] DagsHub integration
 
