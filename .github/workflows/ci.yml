@@ -30,7 +30,7 @@ jobs:
         run: black --check .
 
       - name: Run tests
-        run: pytest tests/ -v --cov=pipeline --cov-report=term-missing
+        run: pytest tests/ -v --cov=pipeline --cov=api --cov-report=term-missing
 
   dvc-repro:
     runs-on: ubuntu-latest
