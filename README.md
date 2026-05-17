@@ -3,6 +3,8 @@
 > **Player behavioral biometrics from raw input telemetry.**
 > Can we identify *who* is playing — or detect automation — purely from mouse and keyboard patterns?
 
+[![CI](https://github.com/Lo1s/behaviorDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Lo1s/behaviorDNA/actions/workflows/ci.yml)
+
 ---
 
 ## What is this?
@@ -135,7 +137,7 @@ dvc repro
 - [x] ONNX model export
 - [x] FastAPI inference endpoint
 - [x] Test suite (features, split, training, evaluation, API)
-- [ ] GitHub Actions CI/CD
+- [x] GitHub Actions CI/CD
 - [ ] DagsHub integration
 
 ---
