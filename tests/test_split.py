@@ -9,7 +9,6 @@ import pandas as pd
 from pipeline.features.run import FEATURE_COLS
 from pipeline.features.split import split
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

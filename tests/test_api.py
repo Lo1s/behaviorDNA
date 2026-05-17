@@ -11,7 +11,6 @@ from api.main import FeatureVector, _vec_to_array, app
 from pipeline.features.run import FEATURE_COLS
 from pipeline.training.run import train_isolation_forest, train_lightgbm
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

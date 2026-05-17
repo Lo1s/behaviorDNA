@@ -6,10 +6,9 @@ Unit tests for pipeline/evaluation/run.py
 
 import pandas as pd
 
-from pipeline.features.run import FEATURE_COLS
 from pipeline.evaluation.run import evaluate_isolation_forest, evaluate_lightgbm
+from pipeline.features.run import FEATURE_COLS
 from pipeline.training.run import train_isolation_forest, train_lightgbm
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

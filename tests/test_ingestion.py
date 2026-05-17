@@ -5,12 +5,12 @@ Unit tests for pipeline/ingestion/run.py
 """
 
 from pathlib import Path
-from pipeline.ingestion.run import (
-    validate_session,
-    parse_session_metadata,
-    parse_events,
-)
 
+from pipeline.ingestion.run import (
+    parse_events,
+    parse_session_metadata,
+    validate_session,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
