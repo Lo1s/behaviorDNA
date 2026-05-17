@@ -1,0 +1,9 @@
+line-length = 88
+
+[lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Notebooks require sys.path manipulation before pipeline imports — E402 is expected
+"notebooks/*.ipynb" = ["E402"]
