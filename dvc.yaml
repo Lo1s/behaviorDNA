@@ -1,6 +1,6 @@
 stages:
   ingest:
-    cmd: python pipeline/ingestion/run.py
+    cmd: python -m pipeline.ingestion.run
     deps:
       - pipeline/ingestion/run.py
       - data/raw
@@ -8,7 +8,7 @@ stages:
       - data/processed/sessions.parquet
 
   features:
-    cmd: python pipeline/features/run.py
+    cmd: python -m pipeline.features.run
     deps:
       - pipeline/features/run.py
       - data/processed/sessions.parquet
@@ -17,7 +17,7 @@ stages:
       - data/processed/features.parquet
 
   split:
-    cmd: python pipeline/features/split.py
+    cmd: python -m pipeline.features.split
     deps:
       - pipeline/features/split.py
       - data/processed/features.parquet

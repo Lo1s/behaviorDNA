@@ -16,12 +16,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: "pip"
 
+      - name: Install system dependencies
+        run: sudo apt-get install -y libgomp1
+
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Lint (ruff)
         run: ruff check .
@@ -30,7 +32,8 @@ jobs:
         run: black --check .
 
       - name: Run tests
-        run: pytest tests/ -v --cov=pipeline --cov=api --cov-report=term-missing
+        # 65% floor: run() entrypoints are covered by dvc-repro, not unit tests
+        run: pytest tests/ -v --cov=pipeline --cov=api --cov-report=term-missing --cov-fail-under=65
 
   dvc-repro:
     runs-on: ubuntu-latest
@@ -46,8 +49,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: "pip"
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y libgomp1
 
       - name: Install dependencies
         run: pip install -r requirements.txt
