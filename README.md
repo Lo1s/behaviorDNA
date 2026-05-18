@@ -4,6 +4,7 @@
 > Can we identify *who* is playing — or detect automation — purely from mouse and keyboard patterns?
 
 [![CI](https://github.com/Lo1s/behaviorDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Lo1s/behaviorDNA/actions/workflows/ci.yml)
+[![Experiment Tracking](https://dagshub.com/Lo1s/behaviorDNA.svg)](https://dagshub.com/Lo1s/behaviorDNA)
 
 ---
 
@@ -108,7 +109,18 @@ dvc remote add origin https://dagshub.com/YOUR_USERNAME/behaviorDNA.dvc
 dvc pull
 ```
 
-### 3. Record a session (Windows)
+### 3. Configure MLflow credentials (optional)
+
+Copy `.env.example` to `.env` and fill in your DagsHub credentials to enable experiment tracking:
+
+```bash
+cp .env.example .env
+# edit .env — set MLFLOW_TRACKING_USERNAME and MLFLOW_TRACKING_PASSWORD
+```
+
+Training runs log automatically to DagsHub when credentials are present. Without `.env`, training still works — MLflow logging is silently skipped.
+
+### 4. Record a session (Windows)
 
 ```bash
 # On Windows (native Python, not WSL)
@@ -116,7 +128,7 @@ cd collector
 python record_session.py --player your_name --game valorant
 ```
 
-### 4. Run the pipeline
+### 5. Run the pipeline
 
 ```bash
 dvc repro
@@ -138,7 +150,7 @@ dvc repro
 - [x] FastAPI inference endpoint
 - [x] Test suite (features, split, training, evaluation, API)
 - [x] GitHub Actions CI/CD
-- [ ] DagsHub integration
+- [x] DagsHub integration
 
 ---
 
