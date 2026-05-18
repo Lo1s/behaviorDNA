@@ -42,6 +42,7 @@ jobs:
 
     env:
       DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+      DAGSHUB_USER: ${{ secrets.DAGSHUB_USER }}
 
     steps:
       - uses: actions/checkout@v4
@@ -59,16 +60,20 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Configure DVC remote
+        if: env.DAGSHUB_TOKEN != ''
         run: |
           dvc remote modify origin --local auth basic
-          dvc remote modify origin --local user ${{ secrets.DAGSHUB_USER }}
-          dvc remote modify origin --local password ${{ secrets.DAGSHUB_TOKEN }}
+          dvc remote modify origin --local user "$DAGSHUB_USER"
+          dvc remote modify origin --local password "$DAGSHUB_TOKEN"
 
       - name: Pull data
+        if: env.DAGSHUB_TOKEN != ''
         run: dvc pull
 
       - name: Reproduce pipeline
+        if: env.DAGSHUB_TOKEN != ''
         run: dvc repro
 
       - name: Push results
+        if: env.DAGSHUB_TOKEN != ''
         run: dvc push
