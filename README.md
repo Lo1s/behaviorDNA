@@ -154,6 +154,16 @@ dvc repro
 
 ---
 
+## TODO / Research Directions
+
+- [ ] **External dataset exploration** — feature importance analysis on CS2CD and CaptchaSolve30k (`notebooks/05_external_datasets.ipynb`)
+- [ ] **Multi-model comparison** — benchmark RandomForest, XGBoost, SVC vs LightGBM for identification; LOF, One-Class SVM vs IsolationForest for detection (`notebooks/06_model_comparison.ipynb`)
+- [ ] **Promote best models to pipeline** — wire winning models from notebook comparison into `pipeline/training/run.py` and `configs/training.yaml`
+- [ ] **Autoencoder / LSTM** — deep learning behavioral fingerprinting (placeholder in config)
+- [ ] **Real-time dashboard** — populate the empty `dashboard/` directory with a Streamlit or Gradio demo
+
+---
+
 ## Why this project?
 
 Built as a portfolio piece targeting the behavioral biometrics / anti-cheat domain.
