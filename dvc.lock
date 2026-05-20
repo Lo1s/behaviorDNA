@@ -1,7 +1,7 @@
 schema: '2.0'
 stages:
   ingest:
-    cmd: python pipeline/ingestion/run.py
+    cmd: python -m pipeline.ingestion.run
     deps:
     - path: data/raw
       hash: md5
@@ -18,7 +18,7 @@ stages:
       md5: ae1c06f68846faaacf5ff107e5786f61
       size: 6721
   features:
-    cmd: python pipeline/features/run.py
+    cmd: python -m pipeline.features.run
     deps:
     - path: data/processed/events.parquet
       hash: md5
@@ -38,12 +38,12 @@ stages:
       md5: 44d4f282dd2b42be5a6874568a1a00c2
       size: 19838
   split:
-    cmd: python pipeline/features/split.py
+    cmd: python -m pipeline.features.split
     deps:
     - path: configs/training.yaml
       hash: md5
-      md5: 85f499868d2f0c66a2c5f8b9b8a7ac82
-      size: 785
+      md5: 01c4547fce4fb4501a26d4f2ca536b1f
+      size: 1157
     - path: data/processed/features.parquet
       hash: md5
       md5: 44d4f282dd2b42be5a6874568a1a00c2
@@ -70,8 +70,8 @@ stages:
     deps:
     - path: configs/training.yaml
       hash: md5
-      md5: 85f499868d2f0c66a2c5f8b9b8a7ac82
-      size: 785
+      md5: 01c4547fce4fb4501a26d4f2ca536b1f
+      size: 1157
     - path: data/splits/train.parquet
       hash: md5
       md5: 33703e53ca6dc724e888f9ed95b36ff9
@@ -82,12 +82,12 @@ stages:
       size: 16411
     - path: pipeline/training/run.py
       hash: md5
-      md5: 82f3f05e7ebbde3329a0239b6dd5bcc5
-      size: 12368
+      md5: ec188c1ce36cc8a67127d966068b127c
+      size: 23167
     outs:
     - path: models/model.onnx
       hash: md5
-      md5: eb9860e6cf32c6cb56e7c947bc7d794b
+      md5: 9d0a0c7bd4cba50328ba2bfc42e9846d
       size: 1138
     - path: models/model.pkl
       hash: md5
@@ -102,8 +102,8 @@ stages:
     deps:
     - path: configs/training.yaml
       hash: md5
-      md5: 85f499868d2f0c66a2c5f8b9b8a7ac82
-      size: 785
+      md5: 01c4547fce4fb4501a26d4f2ca536b1f
+      size: 1157
     - path: data/splits/test.parquet
       hash: md5
       md5: 553042186241775c2d150a71e8fc3dea
@@ -114,8 +114,8 @@ stages:
       size: 7186
     - path: pipeline/evaluation/run.py
       hash: md5
-      md5: 48bd56d8eda753c416081be2cd262fd5
-      size: 5772
+      md5: e91b622bee4ea79e9d62084dfba307ad
+      size: 6656
     outs:
     - path: reports/confusion_matrix.csv
       hash: md5

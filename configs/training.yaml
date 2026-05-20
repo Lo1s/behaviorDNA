@@ -2,7 +2,9 @@
 # Central config for all training runs — consumed by pipeline/training/run.py
 
 model:
-  type: lightgbm          # options: lightgbm | isolation_forest | autoencoder | lstm
+  # Identification:    lightgbm | random_forest | xgboost | svc
+  # Anomaly detection: isolation_forest | lof | one_class_svm
+  type: lightgbm
   task: identification    # options: identification | anomaly_detection
 
 lightgbm:
@@ -18,6 +20,28 @@ isolation_forest:
   n_estimators: 200
   contamination: 0.05     # expected fraction of anomalous sessions
   max_features: 1.0
+
+random_forest:
+  n_estimators: 300
+  class_weight: balanced
+
+xgboost:
+  n_estimators: 300
+  max_depth: 6
+  learning_rate: 0.05
+
+svc:
+  kernel: rbf
+  class_weight: balanced
+  probability: true       # required for predict_proba
+
+lof:
+  n_neighbors: 20
+  contamination: 0.05
+
+one_class_svm:
+  kernel: rbf
+  nu: 0.05
 
 data:
   test_size: 0.15

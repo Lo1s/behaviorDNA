@@ -166,7 +166,7 @@ Opens at `http://localhost:8501` — four tabs: Overview, Player Profiles, Predi
 
 - [ ] **External dataset exploration** — feature importance analysis on CS2CD and CaptchaSolve30k (`notebooks/05_external_datasets.ipynb`)
 - [ ] **Multi-model comparison** — benchmark RandomForest, XGBoost, SVC vs LightGBM for identification; LOF, One-Class SVM vs IsolationForest for detection (`notebooks/06_model_comparison.ipynb`)
-- [ ] **Promote best models to pipeline** — wire winning models from notebook comparison into `pipeline/training/run.py` and `configs/training.yaml`
+- [x] **Promote best models to pipeline** — RandomForest, XGBoost, SVC, LOF, OneClassSVM now selectable via `configs/training.yaml`
 - [ ] **Autoencoder / LSTM** — deep learning behavioral fingerprinting (placeholder in config)
 - [x] **Real-time dashboard** — four-tab Streamlit app in `dashboard/app.py`
 

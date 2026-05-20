@@ -3,10 +3,18 @@ pipeline/training/run.py
 ========================
 Stage 4 — Training: split Parquets → fitted model artifact + ONNX + metrics.
 
-Supports two model types (configured via configs/training.yaml model.type):
+Supports seven model types (configured via configs/training.yaml model.type):
 
-  lightgbm         — LGBMClassifier for player identification (multi-class)
-  isolation_forest — IsolationForest for anomaly/bot detection (unsupervised)
+  Identification (supervised multi-class):
+    lightgbm         — LGBMClassifier
+    random_forest    — RandomForestClassifier
+    xgboost          — XGBClassifier
+    svc              — SVC (RBF kernel, probability=True required)
+
+  Anomaly detection (unsupervised):
+    isolation_forest — IsolationForest
+    lof              — LocalOutlierFactor (novelty=True)
+    one_class_svm    — OneClassSVM
 
 Both paths apply the same preprocessing:
   1. NaN-fill feature columns with 0.0 (e.g. wasd_rhythm=NaN → 0 = no WASD activity)
@@ -42,8 +50,10 @@ import numpy as np
 import pandas as pd
 import yaml
 from dotenv import load_dotenv
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import IsolationForest, RandomForestClassifier
+from sklearn.neighbors import LocalOutlierFactor
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.svm import SVC, OneClassSVM
 
 from pipeline.features.run import FEATURE_COLS
 
@@ -183,6 +193,334 @@ def train_isolation_forest(
     }
     log.info(
         "IsolationForest: mean_score=%.4f  pct_outlier=%.1f%%  n_train=%d",
+        scores.mean(),
+        pct_outlier * 100,
+        len(train_df),
+    )
+    return artifact, metrics
+
+
+def train_random_forest(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    cfg: dict,
+) -> tuple[dict, dict]:
+    """Fit LabelEncoder + StandardScaler + RandomForestClassifier."""
+    from sklearn.metrics import accuracy_score
+
+    n_classes = train_df["player"].nunique()
+    if n_classes < 2:
+        log.warning(
+            "Only %d unique player(s) in train fold — RandomForest requires ≥ 2."
+            " Writing untrained artifact.",
+            n_classes,
+        )
+        return (
+            {
+                "model_type": "random_forest",
+                "task": "identification",
+                "model": None,
+                "scaler": StandardScaler(),
+                "feature_cols": FEATURE_COLS,
+                "label_encoder": None,
+                "classes": None,
+                "trained": False,
+            },
+            {
+                "trained": False,
+                "reason": "fewer_than_2_players",
+                "n_classes": n_classes,
+            },
+        )
+
+    le = LabelEncoder()
+    y_train = le.fit_transform(train_df["player"])
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(_prep_X(train_df))
+
+    seed = cfg["data"]["random_seed"]
+    rf_params = {k: v for k, v in cfg["random_forest"].items() if k != "class_weight"}
+    model = RandomForestClassifier(
+        **rf_params, class_weight="balanced", random_state=seed, n_jobs=-1
+    )
+    model.fit(X_train, y_train)
+
+    train_acc = float(accuracy_score(y_train, model.predict(X_train)))
+    val_acc = float("nan")
+    if not val_df.empty and val_df["player"].isin(le.classes_).all():
+        X_val = scaler.transform(_prep_X(val_df))
+        y_val = le.transform(val_df["player"])
+        val_acc = float(accuracy_score(y_val, model.predict(X_val)))
+
+    artifact = {
+        "model_type": "random_forest",
+        "task": "identification",
+        "model": model,
+        "scaler": scaler,
+        "feature_cols": FEATURE_COLS,
+        "label_encoder": le,
+        "classes": list(le.classes_),
+        "trained": True,
+    }
+    metrics = {
+        "trained": True,
+        "model_type": "random_forest",
+        "train_accuracy": train_acc,
+        "val_accuracy": val_acc,
+        "n_train_windows": len(train_df),
+        "n_val_windows": len(val_df),
+        "n_classes": n_classes,
+    }
+    log.info(
+        "RandomForest: train_acc=%.3f  val_acc=%s  classes=%s",
+        train_acc,
+        f"{val_acc:.3f}" if not np.isnan(val_acc) else "N/A",
+        list(le.classes_),
+    )
+    return artifact, metrics
+
+
+def train_xgboost(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    cfg: dict,
+) -> tuple[dict, dict]:
+    """Fit LabelEncoder + StandardScaler + XGBClassifier."""
+    from sklearn.metrics import accuracy_score
+    from xgboost import XGBClassifier
+
+    n_classes = train_df["player"].nunique()
+    if n_classes < 2:
+        log.warning(
+            "Only %d unique player(s) in train fold — XGBoost requires ≥ 2."
+            " Writing untrained artifact.",
+            n_classes,
+        )
+        return (
+            {
+                "model_type": "xgboost",
+                "task": "identification",
+                "model": None,
+                "scaler": StandardScaler(),
+                "feature_cols": FEATURE_COLS,
+                "label_encoder": None,
+                "classes": None,
+                "trained": False,
+            },
+            {
+                "trained": False,
+                "reason": "fewer_than_2_players",
+                "n_classes": n_classes,
+            },
+        )
+
+    le = LabelEncoder()
+    y_train = le.fit_transform(train_df["player"])
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(_prep_X(train_df))
+
+    seed = cfg["data"]["random_seed"]
+    xgb_params = dict(cfg["xgboost"])
+    model = XGBClassifier(
+        **xgb_params, random_state=seed, verbosity=0, eval_metric="mlogloss"
+    )
+    model.fit(X_train, y_train)
+
+    train_acc = float(accuracy_score(y_train, model.predict(X_train)))
+    val_acc = float("nan")
+    if not val_df.empty and val_df["player"].isin(le.classes_).all():
+        X_val = scaler.transform(_prep_X(val_df))
+        y_val = le.transform(val_df["player"])
+        val_acc = float(accuracy_score(y_val, model.predict(X_val)))
+
+    artifact = {
+        "model_type": "xgboost",
+        "task": "identification",
+        "model": model,
+        "scaler": scaler,
+        "feature_cols": FEATURE_COLS,
+        "label_encoder": le,
+        "classes": list(le.classes_),
+        "trained": True,
+    }
+    metrics = {
+        "trained": True,
+        "model_type": "xgboost",
+        "train_accuracy": train_acc,
+        "val_accuracy": val_acc,
+        "n_train_windows": len(train_df),
+        "n_val_windows": len(val_df),
+        "n_classes": n_classes,
+    }
+    log.info(
+        "XGBoost: train_acc=%.3f  val_acc=%s  classes=%s",
+        train_acc,
+        f"{val_acc:.3f}" if not np.isnan(val_acc) else "N/A",
+        list(le.classes_),
+    )
+    return artifact, metrics
+
+
+def train_svc(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    cfg: dict,
+) -> tuple[dict, dict]:
+    """Fit LabelEncoder + StandardScaler + SVC (RBF kernel).
+
+    Requires probability=True in config to enable predict_proba.
+    """
+    from sklearn.metrics import accuracy_score
+
+    n_classes = train_df["player"].nunique()
+    if n_classes < 2:
+        log.warning(
+            "Only %d unique player(s) in train fold — SVC requires ≥ 2."
+            " Writing untrained artifact.",
+            n_classes,
+        )
+        return (
+            {
+                "model_type": "svc",
+                "task": "identification",
+                "model": None,
+                "scaler": StandardScaler(),
+                "feature_cols": FEATURE_COLS,
+                "label_encoder": None,
+                "classes": None,
+                "trained": False,
+            },
+            {
+                "trained": False,
+                "reason": "fewer_than_2_players",
+                "n_classes": n_classes,
+            },
+        )
+
+    le = LabelEncoder()
+    y_train = le.fit_transform(train_df["player"])
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(_prep_X(train_df))
+
+    seed = cfg["data"]["random_seed"]
+    svc_params = {k: v for k, v in cfg["svc"].items() if k != "class_weight"}
+    model = SVC(**svc_params, class_weight="balanced", random_state=seed)
+    model.fit(X_train, y_train)
+
+    train_acc = float(accuracy_score(y_train, model.predict(X_train)))
+    val_acc = float("nan")
+    if not val_df.empty and val_df["player"].isin(le.classes_).all():
+        X_val = scaler.transform(_prep_X(val_df))
+        y_val = le.transform(val_df["player"])
+        val_acc = float(accuracy_score(y_val, model.predict(X_val)))
+
+    artifact = {
+        "model_type": "svc",
+        "task": "identification",
+        "model": model,
+        "scaler": scaler,
+        "feature_cols": FEATURE_COLS,
+        "label_encoder": le,
+        "classes": list(le.classes_),
+        "trained": True,
+    }
+    metrics = {
+        "trained": True,
+        "model_type": "svc",
+        "train_accuracy": train_acc,
+        "val_accuracy": val_acc,
+        "n_train_windows": len(train_df),
+        "n_val_windows": len(val_df),
+        "n_classes": n_classes,
+    }
+    log.info(
+        "SVC: train_acc=%.3f  val_acc=%s  classes=%s",
+        train_acc,
+        f"{val_acc:.3f}" if not np.isnan(val_acc) else "N/A",
+        list(le.classes_),
+    )
+    return artifact, metrics
+
+
+def train_lof(
+    train_df: pd.DataFrame,
+    cfg: dict,
+) -> tuple[dict, dict]:
+    """Fit StandardScaler + LocalOutlierFactor (novelty=True)."""
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(_prep_X(train_df))
+
+    lof_params = dict(cfg["lof"])
+    model = LocalOutlierFactor(**lof_params, novelty=True)
+    model.fit(X_train)
+
+    scores = model.score_samples(X_train)
+    preds = model.predict(X_train)
+    pct_outlier = float((preds == -1).mean())
+
+    artifact = {
+        "model_type": "lof",
+        "task": "anomaly_detection",
+        "model": model,
+        "scaler": scaler,
+        "feature_cols": FEATURE_COLS,
+        "label_encoder": None,
+        "classes": None,
+        "trained": True,
+    }
+    metrics = {
+        "trained": True,
+        "model_type": "lof",
+        "mean_score_train": float(scores.mean()),
+        "std_score_train": float(scores.std()),
+        "pct_predicted_outlier": pct_outlier,
+        "n_train_windows": len(train_df),
+    }
+    log.info(
+        "LOF: mean_score=%.4f  pct_outlier=%.1f%%  n_train=%d",
+        scores.mean(),
+        pct_outlier * 100,
+        len(train_df),
+    )
+    return artifact, metrics
+
+
+def train_one_class_svm(
+    train_df: pd.DataFrame,
+    cfg: dict,
+) -> tuple[dict, dict]:
+    """Fit StandardScaler + OneClassSVM."""
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(_prep_X(train_df))
+
+    ocsvm_params = dict(cfg["one_class_svm"])
+    model = OneClassSVM(**ocsvm_params)
+    model.fit(X_train)
+
+    scores = model.score_samples(X_train)
+    preds = model.predict(X_train)
+    pct_outlier = float((preds == -1).mean())
+
+    artifact = {
+        "model_type": "one_class_svm",
+        "task": "anomaly_detection",
+        "model": model,
+        "scaler": scaler,
+        "feature_cols": FEATURE_COLS,
+        "label_encoder": None,
+        "classes": None,
+        "trained": True,
+    }
+    metrics = {
+        "trained": True,
+        "model_type": "one_class_svm",
+        "mean_score_train": float(scores.mean()),
+        "std_score_train": float(scores.std()),
+        "pct_predicted_outlier": pct_outlier,
+        "n_train_windows": len(train_df),
+    }
+    log.info(
+        "OneClassSVM: mean_score=%.4f  pct_outlier=%.1f%%  n_train=%d",
         scores.mean(),
         pct_outlier * 100,
         len(train_df),
@@ -341,8 +679,18 @@ def run() -> None:
 
     if model_type == "lightgbm":
         artifact, metrics = train_lightgbm(train_df, val_df, cfg)
+    elif model_type == "random_forest":
+        artifact, metrics = train_random_forest(train_df, val_df, cfg)
+    elif model_type == "xgboost":
+        artifact, metrics = train_xgboost(train_df, val_df, cfg)
+    elif model_type == "svc":
+        artifact, metrics = train_svc(train_df, val_df, cfg)
     elif model_type == "isolation_forest":
         artifact, metrics = train_isolation_forest(train_df, cfg)
+    elif model_type == "lof":
+        artifact, metrics = train_lof(train_df, cfg)
+    elif model_type == "one_class_svm":
+        artifact, metrics = train_one_class_svm(train_df, cfg)
     else:
         log.error("Unknown model.type '%s' in config.", model_type)
         sys.exit(1)

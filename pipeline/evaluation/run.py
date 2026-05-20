@@ -6,8 +6,10 @@ Stage 5 — Evaluation: model artifact + test split → metrics + confusion matr
 Loads models/model.pkl and data/splits/test.parquet. Applies the fitted scaler
 (transform only — never refit) and computes metrics appropriate to the model type:
 
-  lightgbm         — accuracy, precision, recall, F1, confusion matrix CSV
-  isolation_forest — anomaly score stats, fraction predicted as outliers
+  Identification (lightgbm, random_forest, xgboost, svc):
+    accuracy, precision, recall, F1, confusion matrix CSV
+  Anomaly detection (isolation_forest, lof, one_class_svm):
+    anomaly score stats, fraction predicted as outliers
 
 Empty-data / untrained-model handling: writes placeholder outputs and exits
 cleanly so 'dvc repro' stays green.
@@ -47,11 +49,15 @@ def _prep_X(df: pd.DataFrame) -> np.ndarray:
     return df[FEATURE_COLS].fillna(0.0).values
 
 
-def evaluate_lightgbm(
+_CLASSIFIER_TYPES = frozenset({"lightgbm", "random_forest", "xgboost", "svc"})
+_ANOMALY_TYPES = frozenset({"isolation_forest", "lof", "one_class_svm"})
+
+
+def _evaluate_classifier(
     artifact: dict,
     test_df: pd.DataFrame,
 ) -> tuple[dict, pd.DataFrame]:
-    """Predict player classes and compute classification metrics.
+    """Shared evaluation logic for all supervised identification models.
 
     Returns (metrics_dict, confusion_matrix_df).
     Scaler is applied via .transform() only — it was fit on train data.
@@ -68,6 +74,7 @@ def evaluate_lightgbm(
     le = artifact["label_encoder"]
     model = artifact["model"]
     classes = artifact["classes"]
+    model_type = artifact["model_type"]
 
     X_test = scaler.transform(_prep_X(test_df))
     y_true = le.transform(test_df["player"])
@@ -84,7 +91,7 @@ def evaluate_lightgbm(
 
     metrics = {
         "evaluated": True,
-        "model_type": "lightgbm",
+        "model_type": model_type,
         "test_accuracy": acc,
         "precision_weighted": prec,
         "recall_weighted": rec,
@@ -93,7 +100,8 @@ def evaluate_lightgbm(
         "n_classes": len(classes),
     }
     log.info(
-        "LightGBM eval: acc=%.3f  precision=%.3f  recall=%.3f  f1=%.3f",
+        "%s eval: acc=%.3f  precision=%.3f  recall=%.3f  f1=%.3f",
+        model_type,
         acc,
         prec,
         rec,
@@ -102,16 +110,17 @@ def evaluate_lightgbm(
     return metrics, cm_df
 
 
-def evaluate_isolation_forest(
+def _evaluate_anomaly_detector(
     artifact: dict,
     test_df: pd.DataFrame,
 ) -> tuple[dict, pd.DataFrame]:
-    """Compute anomaly scores and outlier fraction on test data.
+    """Shared evaluation logic for all unsupervised anomaly detection models.
 
     Returns (metrics_dict, empty_df) — no confusion matrix for unsupervised models.
     """
     scaler = artifact["scaler"]
     model = artifact["model"]
+    model_type = artifact["model_type"]
 
     X_test = scaler.transform(_prep_X(test_df))
     scores = model.score_samples(X_test)
@@ -120,7 +129,7 @@ def evaluate_isolation_forest(
 
     metrics = {
         "evaluated": True,
-        "model_type": "isolation_forest",
+        "model_type": model_type,
         "mean_score": float(scores.mean()),
         "std_score": float(scores.std()),
         "min_score": float(scores.min()),
@@ -129,13 +138,30 @@ def evaluate_isolation_forest(
         "n_test_windows": len(test_df),
     }
     log.info(
-        "IsolationForest eval: mean_score=%.4f  pct_anomaly=%.1f%%  n_test=%d",
+        "%s eval: mean_score=%.4f  pct_anomaly=%.1f%%  n_test=%d",
+        model_type,
         scores.mean(),
         pct_anomaly * 100,
         len(test_df),
     )
-    # No confusion matrix for anomaly detection
     return metrics, pd.DataFrame()
+
+
+# Public wrappers — preserve names imported by tests and external callers.
+def evaluate_lightgbm(
+    artifact: dict,
+    test_df: pd.DataFrame,
+) -> tuple[dict, pd.DataFrame]:
+    """Evaluate a LightGBM identification artifact on test_df."""
+    return _evaluate_classifier(artifact, test_df)
+
+
+def evaluate_isolation_forest(
+    artifact: dict,
+    test_df: pd.DataFrame,
+) -> tuple[dict, pd.DataFrame]:
+    """Evaluate an IsolationForest anomaly artifact on test_df."""
+    return _evaluate_anomaly_detector(artifact, test_df)
 
 
 def run() -> None:
@@ -170,10 +196,10 @@ def run() -> None:
 
     model_type = artifact["model_type"]
 
-    if model_type == "lightgbm":
-        metrics, cm_df = evaluate_lightgbm(artifact, test_df)
-    elif model_type == "isolation_forest":
-        metrics, cm_df = evaluate_isolation_forest(artifact, test_df)
+    if model_type in _CLASSIFIER_TYPES:
+        metrics, cm_df = _evaluate_classifier(artifact, test_df)
+    elif model_type in _ANOMALY_TYPES:
+        metrics, cm_df = _evaluate_anomaly_detector(artifact, test_df)
     else:
         log.error("Unknown model_type '%s' in artifact.", model_type)
         sys.exit(1)
