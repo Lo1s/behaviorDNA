@@ -5,5 +5,6 @@ select = ["E", "F", "W", "I"]
 ignore = ["E501"]
 
 [lint.per-file-ignores]
-# Notebooks require sys.path manipulation before pipeline imports — E402 is expected
+# Notebooks and dashboard require sys.path manipulation before pipeline imports
 "notebooks/*.ipynb" = ["E402"]
+"dashboard/*.py" = ["E402"]

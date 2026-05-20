@@ -134,6 +134,14 @@ python record_session.py --player your_name --game valorant
 dvc repro
 ```
 
+### 6. Launch the dashboard
+
+```bash
+streamlit run dashboard/app.py
+```
+
+Opens at `http://localhost:8501` — four tabs: Overview, Player Profiles, Predict, Session Explorer.
+
 ---
 
 ## Roadmap
@@ -160,7 +168,7 @@ dvc repro
 - [ ] **Multi-model comparison** — benchmark RandomForest, XGBoost, SVC vs LightGBM for identification; LOF, One-Class SVM vs IsolationForest for detection (`notebooks/06_model_comparison.ipynb`)
 - [ ] **Promote best models to pipeline** — wire winning models from notebook comparison into `pipeline/training/run.py` and `configs/training.yaml`
 - [ ] **Autoencoder / LSTM** — deep learning behavioral fingerprinting (placeholder in config)
-- [ ] **Real-time dashboard** — populate the empty `dashboard/` directory with a Streamlit or Gradio demo
+- [x] **Real-time dashboard** — four-tab Streamlit app in `dashboard/app.py`
 
 ---
 
