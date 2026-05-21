@@ -42,7 +42,7 @@ SESSIONS_IN = PROCESSED_DIR / "sessions.parquet"
 FEATURES_OUT = PROCESSED_DIR / "features.parquet"
 
 WINDOW_MS = 30_000  # 30 seconds
-WASD_KEYS = {"w", "a", "s", "d"}
+WASD_KEYS = {"w", "a", "s", "d", "Key.up", "Key.down", "Key.left", "Key.right"}
 
 FEATURE_COLS = [
     # Mouse kinematics

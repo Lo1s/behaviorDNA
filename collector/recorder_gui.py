@@ -164,7 +164,7 @@ INPUT_BG = "#0f3460"
 SUCCESS = "#4ecca3"
 WARNING = "#f5a623"
 
-GAMES = ["Valorant", "CS2", "Tarkov", "Arc Raiders", "Other"]
+GAMES = ["Valorant", "CS2", "GTA5", "Tarkov", "Arc Raiders", "Other"]
 
 
 class RecorderApp:

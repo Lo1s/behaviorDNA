@@ -5,9 +5,9 @@ stages:
     deps:
     - path: data/raw
       hash: md5
-      md5: ebc5f24b836b1b620eb4a910f7e79187.dir
-      size: 30273165
-      nfiles: 14
+      md5: 690fe02401200df43bf51e69fbbbe783.dir
+      size: 71862032
+      nfiles: 29
     - path: pipeline/ingestion/run.py
       hash: md5
       md5: 159279c6bd3f5958b2635aa808996afa
@@ -30,8 +30,8 @@ stages:
       size: 6721
     - path: pipeline/features/run.py
       hash: md5
-      md5: 72158411773ef63402ab97e9e0d65bd3
-      size: 10809
+      md5: a9509a7fbf3eaf42ed019febf73e6ed6
+      size: 10856
     outs:
     - path: data/processed/features.parquet
       hash: md5
