@@ -39,6 +39,7 @@ streamlit>=1.32
 
 # --- External Datasets ---
 kaggle>=1.6
+datasets>=2.19         # HuggingFace datasets — streaming download
 
 # --- Dev / Testing ---
 pytest>=7.4
