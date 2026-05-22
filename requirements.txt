@@ -40,6 +40,8 @@ streamlit>=1.32
 # --- External Datasets ---
 kaggle>=1.6
 datasets>=2.19         # HuggingFace datasets — streaming download
+scipy>=1.10            # Statistical tests (Mann-Whitney U, Kruskal-Wallis, KS)
+umap-learn>=0.5        # UMAP dimensionality reduction for embedding visualisation
 
 # --- Dev / Testing ---
 pytest>=7.4

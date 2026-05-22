@@ -167,7 +167,7 @@ Opens at `http://localhost:8501` — four tabs: Overview, Player Profiles, Predi
 - [x] **External dataset exploration** — CS2CD cheat detection + CaptchaSolve30k mouse kinematic analysis (`notebooks/05_external_datasets.ipynb`)
 - [ ] **Multi-model comparison** — benchmark RandomForest, XGBoost, SVC vs LightGBM for identification; LOF, One-Class SVM vs IsolationForest for detection (`notebooks/06_model_comparison.ipynb`)
 - [x] **Promote best models to pipeline** — RandomForest, XGBoost, SVC, LOF, OneClassSVM now selectable via `configs/training.yaml`
-- [ ] **Behavioral differentiation analysis** — deep dive into how cheater/bot trajectories differ from legit behavior using CS2CD and CaptchaSolve30k: feature distributions by label, PCA/UMAP separation, example trajectory overlays, and statistical tests (`notebooks/07_behavioral_differentiation.ipynb`)
+- [x] **Behavioral differentiation analysis** — deep dive into how cheater/bot trajectories differ from legit behavior using CS2CD and CaptchaSolve30k: feature distributions by label, PCA/UMAP separation, example trajectory overlays, and statistical tests (`notebooks/07_behavioral_differentiation.ipynb`)
 - [ ] **Autoencoder / LSTM** — deep learning behavioral fingerprinting (placeholder in config)
 - [x] **Real-time dashboard** — four-tab Streamlit app in `dashboard/app.py`
 
