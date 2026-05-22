@@ -72,7 +72,7 @@ jobs:
 
       - name: Reproduce pipeline
         if: env.DAGSHUB_TOKEN != ''
-        run: dvc repro
+        run: dvc repro --force
 
       - name: Push results
         if: env.DAGSHUB_TOKEN != ''
