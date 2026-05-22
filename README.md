@@ -4,7 +4,7 @@
 > Can we identify *who* is playing — or detect automation — purely from mouse and keyboard patterns?
 
 [![CI](https://github.com/Lo1s/behaviorDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Lo1s/behaviorDNA/actions/workflows/ci.yml)
-[![Experiment Tracking](https://dagshub.com/Lo1s/behaviorDNA.svg)](https://dagshub.com/Lo1s/behaviorDNA)
+[![Experiment Tracking](https://img.shields.io/badge/Experiment_Tracking-DagsHub-f76c6c?logo=mlflow)](https://dagshub.com/Lo1s/behaviorDNA)
 
 ---
 
