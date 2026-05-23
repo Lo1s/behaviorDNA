@@ -24,7 +24,7 @@ the participants. No data was collected covertly or without the player's
 knowledge. Each participant:
 
 - ran the recorder themselves on their own machine
-- was informed of what data is captured (mouse/keyboard events only)
+- was informed of what data is captured (mouse/keyboard events, hardware setup, and physical characteristics — see below)
 - was told how the data would be used (ML research / portfolio project)
 
 ---
@@ -52,12 +52,17 @@ production data collection.
 
 ## Data storage & privacy
 
-- Session files contain **no personally identifiable information** beyond the
-  player name/alias chosen by the participant themselves
-- No IP addresses, hardware IDs, or account identifiers are recorded
-- All raw session files are stored locally and shared only via a private DVC
-  remote with access limited to project contributors
-- Participants can request deletion of their sessions at any time
+Each session file contains:
+- **Mouse and keyboard events** — timestamped x/y positions, button presses, key names
+- **Hardware setup** — DPI, polling rate, screen resolution, in-game sensitivity
+- **Physical characteristics** — grip style, dominant hand, warmup state, activity type
+- **Player alias** — a nickname chosen by the participant (not a real name)
+
+No IP addresses, hardware serial numbers, OS usernames, or account identifiers are recorded.
+
+The physical characteristics (grip style, dominant hand) are self-reported and constitute mild biometric data. Participants were explicitly informed of this before recording.
+
+All raw session files are stored locally and shared only via a private DVC remote with access limited to project contributors. Participants can request deletion of their sessions at any time.
 
 ---
 

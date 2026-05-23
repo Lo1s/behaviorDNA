@@ -122,11 +122,25 @@ Training runs log automatically to DagsHub when credentials are present. Without
 
 ### 4. Record a session (Windows)
 
+The recommended way is the compiled GUI (see `collector/recorder_gui.py` → PyInstaller). For CLI use:
+
 ```bash
 # On Windows (native Python, not WSL)
 cd collector
-python record_session.py --player your_name --game valorant
+python record_session.py \
+  --player your_name \
+  --game gta \
+  --activity combat \
+  --polling-rate 1000 \
+  --resolution 1920x1080 \
+  --grip palm \
+  --hand right \
+  --warmup no \
+  --sens 0.35 \
+  --dpi 800
 ```
+
+See [docs/RECORDING_INSTRUCTIONS.md](docs/RECORDING_INSTRUCTIONS.md) for the full player guide (activity schedule, how to look up hardware values, data quality rules).
 
 ### 5. Run the pipeline
 
