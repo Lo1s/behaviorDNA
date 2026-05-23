@@ -176,6 +176,10 @@ Opens at `http://localhost:8501` — four tabs: Overview, Player Profiles, Predi
 
 ---
 
+## Portfolio Roadmap
+
+A 5-phase roadmap targeting anti-cheat ML/AI roles is tracked in [docs/ROADMAP.md](docs/ROADMAP.md). It adds deep learning (LSTM autoencoder), adversarial bot generation + detection benchmarks, real-time streaming inference, and production observability on top of the foundation listed below.
+
 ## TODO / Research Directions
 
 - [x] **External dataset exploration** — CS2CD cheat detection + CaptchaSolve30k mouse kinematic analysis (`notebooks/05_external_datasets.ipynb`)
