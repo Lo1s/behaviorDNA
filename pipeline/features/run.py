@@ -314,6 +314,7 @@ def run() -> None:
                 "session_id": sid,
                 "player": sess["player"],
                 "game": sess["game"],
+                "activity": sess.get("activity"),
                 "sensitivity": sess["sensitivity"],
                 "dpi": sess["dpi"],
                 "recorded_at": sess["recorded_at"],
