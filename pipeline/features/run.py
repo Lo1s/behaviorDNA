@@ -73,6 +73,7 @@ META_COLS = [
     "window_idx",
     "player",
     "game",
+    "activity",
     "sensitivity",
     "dpi",
     "recorded_at",
