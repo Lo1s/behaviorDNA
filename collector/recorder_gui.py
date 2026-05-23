@@ -128,7 +128,7 @@ def on_key_release(key):
 # ---------------------------------------------------------------------------
 
 
-def save_session(player, game, sensitivity, dpi) -> Path:
+def save_session(player, game, activity, sensitivity, dpi) -> Path:
     session_id = str(uuid.uuid4())[:8]
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     filename = f"{timestamp}_{player}_{game}_{session_id}.json"
@@ -138,6 +138,7 @@ def save_session(player, game, sensitivity, dpi) -> Path:
         "session_id": session_id,
         "player": player,
         "game": game,
+        "activity": activity,
         "sensitivity": sensitivity,
         "dpi": dpi,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -165,6 +166,7 @@ SUCCESS = "#4ecca3"
 WARNING = "#f5a623"
 
 GAMES = ["Valorant", "CS2", "GTA5", "Tarkov", "Arc Raiders", "Other"]
+ACTIVITIES = ["on_foot", "driving", "combat", "sniping", "free_roam"]
 
 
 class RecorderApp:
@@ -274,12 +276,39 @@ class RecorderApp:
         )
         game_menu.grid(row=3, column=0, sticky="ew", ipady=4)
 
+        # Activity dropdown
+        tk.Label(form, text="ACTIVITY", font=label_font, bg=PANEL_BG, fg=TEXT_DIM).grid(
+            row=4, column=0, sticky="w", pady=(8, 1)
+        )
+        self.activity_var = tk.StringVar(value=ACTIVITIES[0])
+        activity_menu = tk.OptionMenu(form, self.activity_var, *ACTIVITIES)
+        activity_menu.config(
+            bg=INPUT_BG,
+            fg=TEXT,
+            activebackground=ACCENT,
+            activeforeground="white",
+            relief="flat",
+            font=input_font,
+            bd=0,
+            highlightthickness=0,
+            indicatoron=True,
+            width=28,
+        )
+        activity_menu["menu"].config(
+            bg=INPUT_BG,
+            fg=TEXT,
+            activebackground=ACCENT,
+            activeforeground="white",
+            font=input_font,
+        )
+        activity_menu.grid(row=5, column=0, sticky="ew", ipady=4)
+
         # Sens + DPI side by side
         tk.Label(
             form, text="IN-GAME SENSITIVITY", font=label_font, bg=PANEL_BG, fg=TEXT_DIM
-        ).grid(row=4, column=0, sticky="w", pady=(8, 1))
+        ).grid(row=6, column=0, sticky="w", pady=(8, 1))
         sens_dpi = tk.Frame(form, bg=PANEL_BG)
-        sens_dpi.grid(row=5, column=0, sticky="ew")
+        sens_dpi.grid(row=7, column=0, sticky="ew")
 
         self.sens_var = tk.StringVar()
         sens_entry = tk.Entry(
@@ -501,10 +530,11 @@ class RecorderApp:
 
         player = self.player_var.get().strip()
         game = self.game_var.get().strip().lower().replace(" ", "_")
+        activity = self.activity_var.get().strip()
         sens = float(self.sens_var.get().strip())
         dpi = int(self.dpi_var.get().strip())
 
-        output_path = save_session(player, game, sens, dpi)
+        output_path = save_session(player, game, activity, sens, dpi)
 
         self.btn.config(text="▶  START RECORDING", bg=ACCENT)
         self.status_label.config(fg=SUCCESS)
@@ -515,9 +545,10 @@ class RecorderApp:
         messagebox.showinfo(
             "Session saved!",
             f"Session recorded successfully.\n\n"
-            f"Player : {player}\n"
-            f"Game   : {game}\n"
-            f"Events : {len(events):,}\n\n"
+            f"Player   : {player}\n"
+            f"Game     : {game}\n"
+            f"Activity : {activity}\n"
+            f"Events   : {len(events):,}\n\n"
             f"File saved to:\n{output_path}",
         )
 

@@ -78,6 +78,7 @@ def parse_session_metadata(data: dict, filepath: Path) -> dict:
         "session_id": data["session_id"],
         "player": data["player"].strip().lower(),
         "game": data["game"].strip().lower().replace(" ", "_"),
+        "activity": data.get("activity"),
         "sensitivity": float(data["sensitivity"]),
         "dpi": int(data["dpi"]),
         "recorded_at": pd.to_datetime(data["recorded_at"], utc=True),

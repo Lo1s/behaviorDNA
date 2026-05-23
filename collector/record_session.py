@@ -7,7 +7,7 @@ Records mouse and keyboard events during a gameplay session and saves
 them as a structured JSON file for later ingestion into the pipeline.
 
 Usage:
-    python record_session.py --player jiri --game valorant --sens 0.45 --dpi 800
+    python record_session.py --player jiri --game valorant --sens 0.45 --dpi 800 --activity combat
 
 Requirements (Windows host, NOT WSL):
     pip install pynput
@@ -153,7 +153,9 @@ def on_key_release(key) -> None:
 # ---------------------------------------------------------------------------
 
 
-def save_session(player: str, game: str, sensitivity: float, dpi: int) -> Path:
+def save_session(
+    player: str, game: str, sensitivity: float, dpi: int, activity: str
+) -> Path:
     session_id = str(uuid.uuid4())[:8]
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     filename = f"{timestamp}_{player}_{game}_{session_id}.json"
@@ -165,6 +167,7 @@ def save_session(player: str, game: str, sensitivity: float, dpi: int) -> Path:
         "session_id": session_id,
         "player": player,
         "game": game,
+        "activity": activity,
         "sensitivity": sensitivity,
         "dpi": dpi,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -196,6 +199,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--sens", type=float, required=True, help="In-game sensitivity")
     parser.add_argument("--dpi", type=int, required=True, help="Mouse DPI")
+    parser.add_argument(
+        "--activity",
+        required=True,
+        choices=["on_foot", "driving", "combat", "sniping", "free_roam"],
+        help="Activity type during this session",
+    )
     return parser.parse_args()
 
 
@@ -210,6 +219,7 @@ def main() -> None:
     print("=" * 50)
     print(f"  Player      : {args.player}")
     print(f"  Game        : {args.game}")
+    print(f"  Activity    : {args.activity}")
     print(f"  Sensitivity : {args.sens}")
     print(f"  DPI         : {args.dpi}")
     print(f"  Output dir  : {OUTPUT_DIR.resolve()}")
@@ -260,6 +270,7 @@ def main() -> None:
         game=args.game,
         sensitivity=args.sens,
         dpi=args.dpi,
+        activity=args.activity,
     )
 
     print(f"✅ Session saved: {output_path.name}")
