@@ -154,7 +154,16 @@ def on_key_release(key) -> None:
 
 
 def save_session(
-    player: str, game: str, sensitivity: float, dpi: int, activity: str
+    player: str,
+    game: str,
+    activity: str,
+    polling_rate: int,
+    resolution: str,
+    grip_style: str,
+    dominant_hand: str,
+    warmup: bool,
+    sensitivity: float,
+    dpi: int,
 ) -> Path:
     session_id = str(uuid.uuid4())[:8]
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
@@ -168,6 +177,11 @@ def save_session(
         "player": player,
         "game": game,
         "activity": activity,
+        "polling_rate": polling_rate,
+        "resolution": resolution,
+        "grip_style": grip_style,
+        "dominant_hand": dominant_hand,
+        "warmup": warmup,
         "sensitivity": sensitivity,
         "dpi": dpi,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -205,6 +219,37 @@ def parse_args() -> argparse.Namespace:
         choices=["on_foot", "driving", "combat", "sniping", "free_roam"],
         help="Activity type during this session",
     )
+    parser.add_argument(
+        "--polling-rate",
+        type=int,
+        required=True,
+        choices=[125, 500, 1000, 2000, 4000, 8000],
+        help="Mouse polling rate in Hz (check mouse software, e.g. Logitech G HUB)",
+    )
+    parser.add_argument(
+        "--resolution",
+        required=True,
+        choices=["1920x1080", "2560x1440", "3840x2160", "other"],
+        help="Screen resolution (Windows Settings → Display → Display resolution)",
+    )
+    parser.add_argument(
+        "--grip",
+        required=True,
+        choices=["palm", "claw", "fingertip"],
+        help="Mouse grip style: palm=full hand, claw=arched fingers, fingertip=only fingertips",
+    )
+    parser.add_argument(
+        "--hand",
+        required=True,
+        choices=["right", "left"],
+        help="Dominant hand used for the mouse",
+    )
+    parser.add_argument(
+        "--warmup",
+        required=True,
+        choices=["yes", "no"],
+        help="Were you already warmed up / playing before this recording?",
+    )
     return parser.parse_args()
 
 
@@ -220,6 +265,11 @@ def main() -> None:
     print(f"  Player      : {args.player}")
     print(f"  Game        : {args.game}")
     print(f"  Activity    : {args.activity}")
+    print(f"  Polling rate: {args.polling_rate} Hz")
+    print(f"  Resolution  : {args.resolution}")
+    print(f"  Grip style  : {args.grip}")
+    print(f"  Hand        : {args.hand}")
+    print(f"  Warmed up   : {args.warmup}")
     print(f"  Sensitivity : {args.sens}")
     print(f"  DPI         : {args.dpi}")
     print(f"  Output dir  : {OUTPUT_DIR.resolve()}")
@@ -268,9 +318,14 @@ def main() -> None:
     output_path = save_session(
         player=args.player,
         game=args.game,
+        activity=args.activity,
+        polling_rate=args.polling_rate,
+        resolution=args.resolution,
+        grip_style=args.grip,
+        dominant_hand=args.hand,
+        warmup=args.warmup == "yes",
         sensitivity=args.sens,
         dpi=args.dpi,
-        activity=args.activity,
     )
 
     print(f"✅ Session saved: {output_path.name}")

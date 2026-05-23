@@ -128,7 +128,18 @@ def on_key_release(key):
 # ---------------------------------------------------------------------------
 
 
-def save_session(player, game, activity, sensitivity, dpi) -> Path:
+def save_session(
+    player,
+    game,
+    activity,
+    polling_rate,
+    resolution,
+    grip_style,
+    dominant_hand,
+    warmup,
+    sensitivity,
+    dpi,
+) -> Path:
     session_id = str(uuid.uuid4())[:8]
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     filename = f"{timestamp}_{player}_{game}_{session_id}.json"
@@ -139,6 +150,11 @@ def save_session(player, game, activity, sensitivity, dpi) -> Path:
         "player": player,
         "game": game,
         "activity": activity,
+        "polling_rate": polling_rate,
+        "resolution": resolution,
+        "grip_style": grip_style,
+        "dominant_hand": dominant_hand,
+        "warmup": warmup,
         "sensitivity": sensitivity,
         "dpi": dpi,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -167,13 +183,18 @@ WARNING = "#f5a623"
 
 GAMES = ["Valorant", "CS2", "GTA5", "Tarkov", "Arc Raiders", "Other"]
 ACTIVITIES = ["on_foot", "driving", "combat", "sniping", "free_roam"]
+POLLING_RATES = ["125", "500", "1000", "2000", "4000", "8000"]
+RESOLUTIONS = ["1920x1080", "2560x1440", "3840x2160", "other"]
+GRIP_STYLES = ["palm", "claw", "fingertip"]
+HANDS = ["right", "left"]
+WARMUP_OPTS = ["no", "yes"]
 
 
 class RecorderApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("BehaviorDNA Recorder")
-        self.root.geometry("420x560")
+        self.root.geometry("420x820")
         self.root.resizable(False, False)
         self.root.configure(bg=DARK_BG)
 
@@ -185,7 +206,7 @@ class RecorderApp:
 
     def _center_window(self):
         self.root.update_idletasks()
-        w, h = 420, 560
+        w, h = 420, 820
         x = (self.root.winfo_screenwidth() - w) // 2
         y = (self.root.winfo_screenheight() - h) // 2
         self.root.geometry(f"{w}x{h}+{x}+{y}")
@@ -303,12 +324,104 @@ class RecorderApp:
         )
         activity_menu.grid(row=5, column=0, sticky="ew", ipady=4)
 
+        def dropdown(label_text, row, options, default=0):
+            tk.Label(
+                form, text=label_text, font=label_font, bg=PANEL_BG, fg=TEXT_DIM
+            ).grid(row=row, column=0, sticky="w", pady=(8, 1))
+            var = tk.StringVar(value=options[default])
+            menu = tk.OptionMenu(form, var, *options)
+            menu.config(
+                bg=INPUT_BG,
+                fg=TEXT,
+                activebackground=ACCENT,
+                activeforeground="white",
+                relief="flat",
+                font=input_font,
+                bd=0,
+                highlightthickness=0,
+                indicatoron=True,
+                width=28,
+            )
+            menu["menu"].config(
+                bg=INPUT_BG,
+                fg=TEXT,
+                activebackground=ACCENT,
+                activeforeground="white",
+                font=input_font,
+            )
+            menu.grid(row=row + 1, column=0, sticky="ew", ipady=4)
+            return var
+
+        self.polling_var = dropdown(
+            "MOUSE POLLING RATE (Hz)", 6, POLLING_RATES, default=2
+        )
+        self.resolution_var = dropdown("SCREEN RESOLUTION", 8, RESOLUTIONS, default=0)
+        self.grip_var = dropdown("GRIP STYLE", 10, GRIP_STYLES, default=0)
+
+        # Dominant hand + Warmup side by side
+        tk.Label(
+            form,
+            text="DOMINANT HAND  /  WARMED UP?",
+            font=label_font,
+            bg=PANEL_BG,
+            fg=TEXT_DIM,
+        ).grid(row=12, column=0, sticky="w", pady=(8, 1))
+        hand_warm = tk.Frame(form, bg=PANEL_BG)
+        hand_warm.grid(row=13, column=0, sticky="ew")
+
+        self.hand_var = tk.StringVar(value=HANDS[0])
+        hand_menu = tk.OptionMenu(hand_warm, self.hand_var, *HANDS)
+        hand_menu.config(
+            bg=INPUT_BG,
+            fg=TEXT,
+            activebackground=ACCENT,
+            activeforeground="white",
+            relief="flat",
+            font=input_font,
+            bd=0,
+            highlightthickness=0,
+            width=12,
+        )
+        hand_menu["menu"].config(
+            bg=INPUT_BG,
+            fg=TEXT,
+            activebackground=ACCENT,
+            activeforeground="white",
+            font=input_font,
+        )
+        hand_menu.pack(side="left", ipady=4)
+
+        tk.Label(
+            hand_warm, text="  WARMUP", font=label_font, bg=PANEL_BG, fg=TEXT_DIM
+        ).pack(side="left", padx=(16, 4))
+        self.warmup_var = tk.StringVar(value=WARMUP_OPTS[0])
+        warmup_menu = tk.OptionMenu(hand_warm, self.warmup_var, *WARMUP_OPTS)
+        warmup_menu.config(
+            bg=INPUT_BG,
+            fg=TEXT,
+            activebackground=ACCENT,
+            activeforeground="white",
+            relief="flat",
+            font=input_font,
+            bd=0,
+            highlightthickness=0,
+            width=8,
+        )
+        warmup_menu["menu"].config(
+            bg=INPUT_BG,
+            fg=TEXT,
+            activebackground=ACCENT,
+            activeforeground="white",
+            font=input_font,
+        )
+        warmup_menu.pack(side="left", ipady=4)
+
         # Sens + DPI side by side
         tk.Label(
             form, text="IN-GAME SENSITIVITY", font=label_font, bg=PANEL_BG, fg=TEXT_DIM
-        ).grid(row=6, column=0, sticky="w", pady=(8, 1))
+        ).grid(row=14, column=0, sticky="w", pady=(8, 1))
         sens_dpi = tk.Frame(form, bg=PANEL_BG)
-        sens_dpi.grid(row=7, column=0, sticky="ew")
+        sens_dpi.grid(row=15, column=0, sticky="ew")
 
         self.sens_var = tk.StringVar()
         sens_entry = tk.Entry(
@@ -531,10 +644,26 @@ class RecorderApp:
         player = self.player_var.get().strip()
         game = self.game_var.get().strip().lower().replace(" ", "_")
         activity = self.activity_var.get().strip()
+        polling_rate = int(self.polling_var.get().strip())
+        resolution = self.resolution_var.get().strip()
+        grip_style = self.grip_var.get().strip()
+        dominant_hand = self.hand_var.get().strip()
+        warmup = self.warmup_var.get().strip() == "yes"
         sens = float(self.sens_var.get().strip())
         dpi = int(self.dpi_var.get().strip())
 
-        output_path = save_session(player, game, activity, sens, dpi)
+        output_path = save_session(
+            player,
+            game,
+            activity,
+            polling_rate,
+            resolution,
+            grip_style,
+            dominant_hand,
+            warmup,
+            sens,
+            dpi,
+        )
 
         self.btn.config(text="▶  START RECORDING", bg=ACCENT)
         self.status_label.config(fg=SUCCESS)
