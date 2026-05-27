@@ -82,8 +82,14 @@ artifact = load_artifact()
 all_data = load_all_splits()
 test_data = load_test()
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["📊 Overview", "👤 Player Profiles", "🔮 Predict", "🕵️ Session Explorer"]
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    [
+        "📊 Overview",
+        "👤 Player Profiles",
+        "🔮 Predict",
+        "🕵️ Session Explorer",
+        "📡 Live Session",
+    ]
 )
 
 # ── Tab 1 — Overview ──────────────────────────────────────────────────────────
@@ -373,3 +379,216 @@ with tab4:
                 height=300,
             )
             st.plotly_chart(fig_sc, use_container_width=True)
+
+
+# ── Tab 5 — Live Session ──────────────────────────────────────────────────────
+with tab5:
+    import json
+    import time
+
+    st.subheader("📡 Live cheat-risk timeline")
+    st.markdown(
+        """
+        Replays a recorded session through the same streaming pipeline an
+        always-on anti-cheat would use (see [`docs/STREAMING.md`](../docs/STREAMING.md)).
+        Optionally injects a synthetic cheat partway through so the risk score
+        rises in real time — the "money shot" of the Phase 4 work.
+
+        > **Mock-data caveat:** all current `data/raw/*.json` recordings are mouse-on-desktop
+        > mock data, not real gameplay. The streaming pipeline runs correctly; the
+        > *absolute* risk magnitudes will tighten once the GTA recordings land.
+        """
+    )
+
+    RAW_DIR = ROOT / "data" / "raw"
+    session_files = sorted(RAW_DIR.glob("*.json"))
+    if not session_files:
+        st.warning(f"No session JSONs in {RAW_DIR}. Record some sessions first.")
+    else:
+        with st.form("live_replay_form"):
+            col_a, col_b = st.columns(2)
+            session_path = col_a.selectbox(
+                "Session to replay",
+                options=[p.name for p in session_files],
+                index=min(len(session_files) - 1, len(session_files) - 1),
+            )
+            cheat_type = col_b.selectbox(
+                "Inject synthetic cheat",
+                options=["(none)", "aimbot", "triggerbot", "macro"],
+                index=1,
+            )
+            inject_at_s = col_b.number_input(
+                "Inject at (seconds)", min_value=0.0, value=10.0, step=5.0
+            )
+            speed = col_a.slider(
+                "Replay speed (events/wall-clock-sec)",
+                min_value=1,
+                max_value=2000,
+                value=400,
+                step=100,
+                help=(
+                    "Higher = faster. The streaming engine is event-driven so "
+                    "this only controls how often the chart redraws."
+                ),
+            )
+            submitted = st.form_submit_button("▶  Run live replay", type="primary")
+
+        chart_placeholder = st.empty()
+        status_placeholder = st.empty()
+
+        if submitted:
+            # Imports kept inside the handler so the dashboard loads without
+            # building the streaming pipeline upfront.
+            from pipeline.inference.streaming import build_stream_state
+            from scripts.replay_session import _maybe_inject_cheat
+
+            with st.spinner(
+                "Loading streaming pipeline (LSTM-AE + detectors + aggregator)…"
+            ):
+                state = build_stream_state()
+
+            with open(RAW_DIR / session_path, encoding="utf-8") as f:
+                session = json.load(f)
+            cheat = None if cheat_type == "(none)" else cheat_type
+            session = _maybe_inject_cheat(
+                session, cheat, inject_at_s if cheat else None
+            )
+
+            events = session.get("events", [])
+            updates: list[dict] = []
+            t_history: list[float] = []
+            risk_history: list[float] = []
+
+            redraw_every = max(1, len(events) // 60)  # ~60 chart frames
+            last_redraw_wall = 0.0
+
+            for i, ev in enumerate(events):
+                update = state.push_event(ev)
+                if update is None:
+                    continue
+                d = update.to_dict()
+                updates.append(d)
+                t_history.append(d["t"] / 1000.0)
+                risk_history.append(d["session_risk"])
+
+                # Throttle redraws: every redraw_every events AND no faster
+                # than the user-selected wall-clock speed allows.
+                if i % redraw_every == 0:
+                    wall_now = time.time()
+                    if wall_now - last_redraw_wall >= 1.0 / max(
+                        speed / redraw_every, 1
+                    ):
+                        fig = go.Figure()
+                        fig.add_trace(
+                            go.Scatter(
+                                x=t_history,
+                                y=risk_history,
+                                mode="lines",
+                                line=dict(color="#e94560", width=2.5),
+                                name="combined risk",
+                            )
+                        )
+                        fig.add_hline(
+                            y=0.5,
+                            line=dict(color="#8892a4", dash="dash"),
+                            annotation_text="alert threshold",
+                            annotation_position="bottom right",
+                        )
+                        if cheat:
+                            fig.add_vline(
+                                x=inject_at_s,
+                                line=dict(color="black", dash="dot"),
+                                annotation_text=f"{cheat} injected",
+                                annotation_position="top right",
+                            )
+                        fig.update_layout(
+                            title=f"Live session risk — {session_path}",
+                            xaxis_title="time (s)",
+                            yaxis_title="session risk",
+                            yaxis=dict(range=[0, 1.05]),
+                            height=380,
+                            uirevision="live",  # keep zoom across redraws
+                        )
+                        chart_placeholder.plotly_chart(fig, use_container_width=True)
+                        status_placeholder.markdown(
+                            f"**Events processed:** {i + 1:,}/{len(events):,}  ·  "
+                            f"**windows:** {d['n_windows']}  ·  **chunks:** {d['n_chunks']}  ·  "
+                            f"**risk now:** `{d['session_risk']:.3f}`"
+                        )
+                        last_redraw_wall = wall_now
+
+            # Final snapshot
+            final = state.finalize()
+            if final is not None:
+                final_d = final.to_dict()
+                updates.append(final_d)
+                t_history.append(final_d["t"] / 1000.0)
+                risk_history.append(final_d["session_risk"])
+
+                # Per-detector contribution panel
+                fig_main = go.Figure()
+                fig_main.add_trace(
+                    go.Scatter(
+                        x=t_history,
+                        y=risk_history,
+                        mode="lines",
+                        line=dict(color="#e94560", width=2.5),
+                        name="combined risk",
+                    )
+                )
+                fig_main.add_hline(
+                    y=0.5,
+                    line=dict(color="#8892a4", dash="dash"),
+                    annotation_text="alert threshold",
+                    annotation_position="bottom right",
+                )
+                if cheat:
+                    fig_main.add_vline(
+                        x=inject_at_s,
+                        line=dict(color="black", dash="dot"),
+                        annotation_text=f"{cheat} injected",
+                        annotation_position="top right",
+                    )
+                fig_main.update_layout(
+                    title=f"Final replay — {session_path}",
+                    xaxis_title="time (s)",
+                    yaxis_title="session risk",
+                    yaxis=dict(range=[0, 1.05]),
+                    height=380,
+                )
+                chart_placeholder.plotly_chart(fig_main, use_container_width=True)
+
+                # Per-detector logits panel
+                detector_names = sorted(
+                    {k for u in updates for k in u.get("detector_logits", {})}
+                )
+                if detector_names:
+                    fig_det = go.Figure()
+                    for name in detector_names:
+                        ys = [u["detector_logits"].get(name, 0.0) for u in updates]
+                        xs = [u["t"] / 1000.0 for u in updates]
+                        fig_det.add_trace(
+                            go.Scatter(
+                                x=xs,
+                                y=ys,
+                                mode="lines",
+                                name=name,
+                                line=dict(width=1.5),
+                            )
+                        )
+                    fig_det.update_layout(
+                        title="Per-detector logit contribution",
+                        xaxis_title="time (s)",
+                        yaxis_title="logit",
+                        height=280,
+                    )
+                    st.plotly_chart(fig_det, use_container_width=True)
+
+                status_placeholder.markdown(
+                    f"**Final session risk:** `{final_d['session_risk']:.3f}` over "
+                    f"{final_d['n_events']:,} events  ·  {final_d['n_windows']} windows  ·  "
+                    f"{final_d['n_chunks']} chunks"
+                )
+
+                with st.expander("Raw ScoreUpdate snapshots (JSON)"):
+                    st.json(updates[-5:])

@@ -276,22 +276,30 @@ class SessionStreamState:
         self.lstm_chunk_scores.append(float(scores[0]))
 
     def _build_update(self, t: float, triggered_by: str) -> ScoreUpdate:
-        per_detector = {
-            name: (val if val != -np.inf else 0.0)
-            for name, val in self._classical_max.items()
-        }
+        # Only include detectors that have actually produced a real score.
+        # An unfired detector (no window/chunk yet) is "no evidence" — feeding
+        # 0.0 to the calibrator would lie because 0.0 might mean "very
+        # cheat-like" or "very legit" depending on its training distribution.
+        # Skipping it lets the aggregator's prior do the right thing instead.
+        per_detector_real: dict[str, float] = {}
+        per_detector_display: dict[str, float] = {}
+        for name, val in self._classical_max.items():
+            display_val = val if val != -np.inf else 0.0
+            per_detector_display[name] = display_val
+            if val != -np.inf:
+                per_detector_real[name] = float(val)
         if self.lstm_chunk_scores:
-            per_detector["LSTMAutoencoder"] = float(
-                np.percentile(self.lstm_chunk_scores, 95)
-            )
+            lstm_val = float(np.percentile(self.lstm_chunk_scores, 95))
+            per_detector_display["LSTMAutoencoder"] = lstm_val
+            per_detector_real["LSTMAutoencoder"] = lstm_val
 
-        explanation = self.aggregator.explain(per_detector)
+        explanation = self.aggregator.explain(per_detector_real)
         update = ScoreUpdate(
             t=t,
             n_events=len(self.events),
             n_windows=len(self.completed_windows),
             n_chunks=len(self.lstm_chunk_scores),
-            per_detector=per_detector,
+            per_detector=per_detector_display,
             session_risk=float(explanation["posterior_risk"]),
             detector_logits=dict(explanation["per_detector_logit"]),
             triggered_by=triggered_by,
