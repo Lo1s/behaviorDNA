@@ -18,9 +18,17 @@ from pipeline.inference.aggregator import (
     RiskAggregator,
     fit_aggregator_from_synthetic,
 )
+from pipeline.inference.streaming import (
+    ScoreUpdate,
+    SessionStreamState,
+    build_stream_state,
+)
 
 __all__ = [
     "IsotonicCalibrator",
     "RiskAggregator",
+    "ScoreUpdate",
+    "SessionStreamState",
+    "build_stream_state",
     "fit_aggregator_from_synthetic",
 ]

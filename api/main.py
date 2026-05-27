@@ -147,6 +147,19 @@ async def lifespan(app: FastAPI):
             "feature_cols": FEATURE_COLS,
         }
     app.state.artifact = artifact
+
+    # Streaming pre-load: build the classical detectors + LSTM-AE + aggregator
+    # once so every /stream connection reuses them. Failure here is non-fatal —
+    # the batch endpoints still work.
+    try:
+        from pipeline.inference.streaming import build_stream_state
+
+        app.state.stream_template = build_stream_state()
+        log.info("Streaming /stream endpoint ready (models + aggregator pre-loaded).")
+    except Exception as e:
+        log.warning("Could not initialise streaming components: %s", e)
+        app.state.stream_template = None
+
     yield
 
 
@@ -160,6 +173,11 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Mount the WebSocket /stream endpoint from api/streaming.py
+from api.streaming import streaming_router  # noqa: E402
+
+app.include_router(streaming_router)
 
 
 @app.get("/health")

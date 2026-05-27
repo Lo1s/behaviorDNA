@@ -2,6 +2,8 @@
 
 > Phase 2 of the [BehaviorDNA roadmap](ROADMAP.md). Unsupervised sequence model that operates on the raw event stream and solves the Phase 1 aimbot detection gap.
 
+> **Data caveat.** All numbers in this document are measured on the **current 15-session mock dataset** (mouse-moving-on-desktop + idle keystrokes, not actual in-game play). Real GTA recordings from 3 players are pending. Once they land, retraining will give the model real aiming dynamics to learn against — the absolute AUC numbers below are baselines that should tighten meaningfully with real data. The math, architecture, and infrastructure are not data-dependent.
+
 ## Motivation
 
 [Phase 1](ROADMAP.md#phase-1--trajectory--temporal-features) added 7 window-level trajectory + timing features and closed the detection gap for triggerbots (AUC 0.50 → 0.87) and macros (0.55 → 0.68). **Aimbot stayed at AUC 0.53** — the 150 ms snap signal is too brief to survive 30-second window aggregation, no matter how clever the per-window features are.

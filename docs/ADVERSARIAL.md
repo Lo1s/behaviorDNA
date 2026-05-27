@@ -2,6 +2,8 @@
 
 > Methodology and results write-up for [Phase 3](ROADMAP.md#phase-3--adversarial-bot-generation--detection-benchmark) of the BehaviorDNA roadmap.
 
+> **Data caveat.** Every AUC number below is measured against synthetic cheats injected into the **current 15-session mock dataset** (mouse-moving-on-desktop, not real gameplay). Real GTA recordings from 3 players are pending. The synthetic cheats themselves are realistic (aimbot snap geometry, triggerbot timing, macro periodicity) — the limitation is the *legit baseline* the detectors learn from. Expect the numbers to improve once real gameplay data lands.
+
 ## Why this exists
 
 A behavioural anti-cheat system that has not been benchmarked against synthetic cheats is making an untested claim. Real-world cheating data is scarce, often unlabelled, and frequently dirty. Synthetic cheats — generated from explicit, controllable mechanisms — let us answer two questions a hiring manager will ask:
