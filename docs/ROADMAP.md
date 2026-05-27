@@ -21,7 +21,8 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 | 1.5. [Feature expansion (optional)](#phase-15--feature-expansion-optional) | Backlog of further feature ideas, revisited after Phase 5 | 📝 Backlog |
 | 2. [LSTM autoencoder](#phase-2--lstm-autoencoder-for-anomaly-detection) | Deep-learning sequence model | ✅ Done |
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
-| 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Live inference dashboard | ⬜ Not started |
+| 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Bayesian multi-detector aggregator + WebSocket API + live dashboard | ✅ Done |
+| 4.1. [Live recorder + multi-user backlog](#phase-41--live-recorder--multi-user-backlog) | Phase 4 follow-ups (live recorder, WS auth, MLflow logging) | 📝 Backlog |
 | 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ⬜ Not started |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
@@ -145,14 +146,31 @@ Chunk-level AUC ≥ 0.75 success criterion met for aimbot (0.78). Session-level 
 - Recorder gets a `--stream-to ws://...` flag (additive, JSON saving still happens)
 
 **Deliverables:**
-- [ ] `pipeline/inference/aggregator.py` — Bayesian risk aggregator
-- [ ] `api/streaming.py` — WebSocket endpoint
-- [ ] `collector/streamer.py` — async WebSocket client used by the recorder
-- [ ] `scripts/replay_session.py` — replays a recorded JSON through the API
-- [ ] Dashboard "Live session" tab
-- [ ] `notebooks/11_session_risk.ipynb` — aggregator derivation + offline analysis
-- [ ] Tests in `tests/test_streaming.py`
-- [ ] Demo video / GIF embedded in README
+- [x] `pipeline/inference/aggregator.py` — Bayesian risk aggregator (isotonic calibration + Naive-Bayes log-odds combination + configurable cheat-rate prior)
+- [x] `pipeline/inference/streaming.py` — transport-independent `SessionStreamState` engine
+- [x] `api/streaming.py` — `/stream` WebSocket endpoint mounted on the existing API
+- [x] `scripts/train_lstm_ae.py` — persists `models/lstm_ae.pt` so the engine + benchmark can reuse weights
+- [x] `scripts/replay_session.py` — WebSocket + offline replay client with optional synthetic-cheat injection
+- [x] `scripts/build_phase4_demo.py` — programmatic PNG + GIF generator (matplotlib FuncAnimation + PillowWriter, no manual capture)
+- [x] Dashboard "📡 Live Session" tab with live chart + per-detector contribution panel
+- [x] `tests/test_aggregator.py` + `tests/test_streaming.py` + `tests/test_replay_session.py` (33 new tests)
+- [x] `docs/STREAMING.md` — architecture + plain-English aggregator math + worked example
+- [x] Demo GIF + PNG embedded in `docs/STREAMING.md` and the README hero
+
+**Key results (mock data):** The aggregator math is correct (all 15 unit tests covering monotonicity, NaN handling, log-odds combination, explain components pass) and the streaming pipeline is end-to-end (event in → `ScoreUpdate` out with per-detector contributions). **However**, with the current mock-data legit baseline, classical detectors over-fire on any active session, so the combined session-level AUC does not exceed the best individual detector. The proof point at this stage is the working infrastructure + visible chunk-level signal from the LSTM-AE in the dashboard panel. Re-running against real GTA recordings (pending) should tighten the absolute numbers without code changes.
+
+---
+
+## Phase 4.1 — Live recorder + multi-user backlog
+
+Follow-ups to Phase 4 that were intentionally **not** in scope this session. Move them up to a real phase if and when they unlock a demo or unblock a use case.
+
+- **Live recorder integration** — modify `collector/recorder_gui.py` / `collector/record_session.py` to add a `--stream-to ws://localhost:8000/stream` flag that pushes events to the API in real time **as the user plays GTA**. Requires Windows-host testing because the recorder runs on Windows; the replay client already demonstrates the streaming pipeline.
+- **WebSocket authentication** — token-based auth on `/stream` for multi-user / production deployment. Single-player demo doesn't need it.
+- **Recorder ↔ API networking from Windows** — when the recorder runs on the Windows host and the API runs in WSL, the WS URL `ws://localhost:8000/stream` may or may not resolve depending on `uvicorn --host` flags. Documented in `docs/STREAMING.md`.
+- **MLflow logging of streaming sessions** — log each replayed session's score timeline as an MLflow run for later analysis. Defer to Phase 5 (statistical rigor & MLOps).
+- **Persistent session storage** — saving recent live sessions for replay/audit. Production concern, deferred.
+- **Aggregator retraining on real GTA recordings** — once real gameplay data lands, re-train the isotonic calibrators on a held-out cheat-vs-legit split. This is the main path to a meaningful "combined > best individual" session-level result.
 
 ---
 

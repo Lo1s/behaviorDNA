@@ -8,6 +8,14 @@
 
 ---
 
+![BehaviorDNA live demo](reports/figures/phase4_live_demo.gif)
+
+*Live cheat-risk score over time as a recorded session is streamed through the full detector stack (4 classical detectors + LSTM autoencoder + Bayesian aggregator). A synthetic aimbot is injected at t=10s — the score crosses the alert threshold as soon as enough independent evidence accumulates. Reproduce with `python -m scripts.build_phase4_demo`. See [docs/STREAMING.md](docs/STREAMING.md).*
+
+> **Mock-data caveat.** All current numbers use mouse-on-desktop mock recordings, not real gameplay. The pipeline is data-agnostic; real GTA recordings from 3 players are pending.
+
+---
+
 ## What is this?
 
 BehaviorDNA is a game-agnostic ML system that:
@@ -186,7 +194,8 @@ A 5-phase roadmap targeting anti-cheat ML/AI roles is tracked in detail in [docs
 | 1.5. [Feature expansion (backlog)](docs/ROADMAP.md#phase-15--feature-expansion-optional) | Further window-feature ideas | 📝 Backlog |
 | 2. [LSTM autoencoder](docs/LSTM_AE.md) | Deep-learning sequence model on raw events | ✅ Done — aimbot chunk AUC 0.53 → **0.78**, triggerbot chunk 0.96 |
 | 3. [Adversarial bots](docs/ADVERSARIAL.md) | Synthetic cheat generator + detection benchmark | ✅ Done — 90 labelled hybrid sessions, full ROC grid |
-| 4. [Streaming + risk aggregation](docs/ROADMAP.md#phase-4--session-level-risk-aggregation--streaming-api) | Live inference + Bayesian multi-detector session score | ⬜ Next |
+| 4. [Streaming + risk aggregation](docs/STREAMING.md) | Naive-Bayes log-odds aggregator + WebSocket API + live dashboard tab | ✅ Done — infrastructure end-to-end (mock-data baseline; see [doc](docs/STREAMING.md#what-works-and-what-doesnt-honest)) |
+| 4.1. [Live recorder + multi-user backlog](docs/ROADMAP.md#phase-41--live-recorder--multi-user-backlog) | Phase 4 follow-ups | 📝 Backlog |
 | 5. [Statistical rigor & MLOps](docs/ROADMAP.md#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ⬜ Not started |
 
 Legend: ✅ Done · 🚧 In progress · ⬜ Not started · 📝 Backlog
@@ -200,7 +209,7 @@ Legend: ✅ Done · 🚧 In progress · ⬜ Not started · 📝 Backlog
 - [x] **Adversarial bot generation + detection benchmark** — synthetic aimbot/triggerbot/macro generator, 90 labelled hybrid sessions, per-detector ROC grid (`notebooks/10_adversarial_bots.ipynb`, `docs/ADVERSARIAL.md`)
 - [x] **Trajectory & temporal features** — 7 anti-cheat-targeted features (curvature, path efficiency, click reaction time, keystroke periodicity, …) closing the triggerbot + macro detection gap (`notebooks/08_trajectory_features.ipynb`, `docs/FEATURES.md`)
 - [x] **LSTM autoencoder on raw event sequences** — PyTorch sequence model, GPU-accelerated (RTX 3070), solves the aimbot detection gap at the chunk level (AUC 0.78). 11-step tutorial in `notebooks/09_lstm_autoencoder.ipynb`; full architecture write-up in `docs/LSTM_AE.md`
-- [ ] **Streaming inference + Bayesian session aggregation** — WebSocket scoring, live dashboard, multi-detector risk combination (Phase 4)
+- [x] **Streaming inference + Bayesian session aggregation** — `/stream` WebSocket endpoint, `pipeline/inference/aggregator.py` (Naive-Bayes log-odds + isotonic calibration), `scripts/replay_session.py` with synthetic-cheat injection, "📡 Live Session" dashboard tab, reproducible PNG + GIF demo artifacts via `scripts/build_phase4_demo.py`. Full architecture in [docs/STREAMING.md](docs/STREAMING.md).
 - [ ] **Calibration + SHAP + drift monitor + MLflow registry** — production polish (Phase 5)
 - [x] **Real-time dashboard** — four-tab Streamlit app in `dashboard/app.py`
 
