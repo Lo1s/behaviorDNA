@@ -768,6 +768,224 @@ def run_lstm_ae_benchmark(
 
 
 # ---------------------------------------------------------------------------
+# Combined-detector benchmark (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+def _collect_per_session_scores(
+    synthetic_dir: Path = SYNTHETIC_DIR,
+    *,
+    chunk_length: int = 64,
+    device: str = "auto",
+) -> tuple[dict[str, dict[str, float]], dict[str, str]]:
+    """Score every synthetic session with every detector at the session level.
+
+    Returns
+    -------
+    (scores_by_session, label_by_session)
+        - ``scores_by_session[file_name][detector_name] = float``
+        - ``label_by_session[file_name] = "legit" | "aimbot" | "macro" | "triggerbot"``
+    """
+    # Classical detectors on 25-D window features
+    feats = load_synthetic_features(synthetic_dir)
+    X = feats[FEATURE_COLS].fillna(0.0).to_numpy()
+    scaler = StandardScaler().fit(X)
+    X_scaled = scaler.transform(X)
+    legit_mask = feats["cheat_label"].eq(CHEAT_LEGIT).to_numpy()
+    legit_X = X_scaled[legit_mask]
+
+    scores_by_session: dict[str, dict[str, float]] = {}
+    label_by_session: dict[str, str] = {}
+
+    detectors = _build_detectors()
+    for det_name, det in detectors.items():
+        det.fit(legit_X)
+        all_scores = -det.score_samples(X_scaled)
+        df = pd.DataFrame(
+            {
+                "file": feats["cheat_source_file"].to_numpy(),
+                "label": feats["cheat_label"].to_numpy(),
+                "score": all_scores,
+            }
+        )
+        per_session = df.groupby("file")["score"].max()
+        for fname, score in per_session.items():
+            scores_by_session.setdefault(fname, {})[det_name] = float(score)
+            label_by_session[fname] = df[df["file"] == fname]["label"].iloc[0]
+
+    # LSTM-AE per-session p95 score (uses persisted artifact if available)
+    try:
+        import torch
+
+        from pipeline.models.lstm_ae import (
+            LSTM_AE_WEIGHTS_NAME,
+            load_lstm_ae,
+            score_sequences,
+        )
+        from pipeline.sequences.preprocessing import (
+            apply_normalizer,
+            session_to_event_tensor,
+        )
+
+        model_dir = ROOT / "models"
+        if (model_dir / LSTM_AE_WEIGHTS_NAME).exists():
+            model, stats, meta = load_lstm_ae(model_dir, device=device)
+            cl = int((meta.get("config") or {}).get("chunk_length", chunk_length))
+            for path in sorted(synthetic_dir.glob("*.json")):
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                tensor = session_to_event_tensor(data)
+                if len(tensor) < cl:
+                    continue
+                normalized = apply_normalizer(tensor, stats)
+                n_chunks = len(normalized) // cl
+                chunks = np.stack(
+                    [normalized[i * cl : (i + 1) * cl] for i in range(n_chunks)]
+                )
+                chunk_scores = score_sequences(
+                    model,
+                    torch.from_numpy(chunks).float(),
+                    batch_size=256,
+                    device=device,
+                )
+                scores_by_session.setdefault(path.name, {})["LSTMAutoencoder"] = float(
+                    np.percentile(chunk_scores, 95)
+                )
+                label_by_session.setdefault(path.name, data.get("cheat_label", "legit"))
+        else:
+            log.warning(
+                "No LSTM-AE artifact at %s — combined benchmark will use classical only",
+                model_dir,
+            )
+    except ImportError:
+        log.warning("torch unavailable — combined benchmark will use classical only")
+
+    return scores_by_session, label_by_session
+
+
+def run_combined_benchmark(
+    synthetic_dir: Path = SYNTHETIC_DIR,
+    *,
+    prior_cheat_rate: float = 0.05,
+    test_fraction: float = 0.5,
+    fpr_threshold: float = 0.05,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Fit a Bayesian aggregator on half the synthetic sessions, score the other half.
+
+    Reports one ``BenchmarkResult`` row per cheat type with detector
+    ``"Combined"`` — the calibrated multi-detector session AUC.
+
+    The other classical detectors and the LSTM-AE are also re-scored on the
+    same test split so the comparison is apples-to-apples in the output CSV.
+    """
+    from pipeline.inference.aggregator import RiskAggregator
+
+    log.info("Collecting per-session detector scores for %s", synthetic_dir)
+    scores_by_session, label_by_session = _collect_per_session_scores(synthetic_dir)
+    files = sorted(scores_by_session.keys())
+
+    # Stratified train/test split by label
+    rng = np.random.default_rng(seed)
+    labels = [label_by_session[f] for f in files]
+    train_files: list[str] = []
+    test_files: list[str] = []
+    for label in sorted(set(labels)):
+        same = [f for f, lbl in zip(files, labels) if lbl == label]
+        rng.shuffle(same)
+        n_test = max(1, int(round(len(same) * test_fraction)))
+        test_files.extend(same[:n_test])
+        train_files.extend(same[n_test:])
+    log.info(
+        "Stratified split: %d train sessions, %d test sessions",
+        len(train_files),
+        len(test_files),
+    )
+
+    # Build training (scores, labels) per detector
+    detector_names = sorted({d for s in scores_by_session.values() for d in s})
+    train_data: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for det in detector_names:
+        s, y = [], []
+        for f in train_files:
+            if det in scores_by_session[f]:
+                s.append(scores_by_session[f][det])
+                y.append(0 if label_by_session[f] == CHEAT_LEGIT else 1)
+        if s:
+            train_data[det] = (
+                np.asarray(s, dtype=np.float64),
+                np.asarray(y, dtype=np.int64),
+            )
+
+    aggregator = RiskAggregator(prior_cheat_rate=prior_cheat_rate).fit(train_data)
+
+    # Score the test split with each detector + the combined aggregator
+    test_combined: dict[str, float] = {}
+    test_per_detector: dict[str, dict[str, float]] = {det: {} for det in detector_names}
+    for f in test_files:
+        test_combined[f] = aggregator.aggregate(scores_by_session[f])
+        for det in detector_names:
+            if det in scores_by_session[f]:
+                test_per_detector[det][f] = scores_by_session[f][det]
+
+    cheat_labels = sorted({label_by_session[f] for f in test_files} - {CHEAT_LEGIT})
+
+    def _build_result(
+        detector_name: str, scores_dict: dict[str, float]
+    ) -> list[BenchmarkResult]:
+        rows: list[BenchmarkResult] = []
+        legit_scores = np.array(
+            [
+                scores_dict[f]
+                for f in test_files
+                if label_by_session[f] == CHEAT_LEGIT and f in scores_dict
+            ]
+        )
+        for cheat_label in cheat_labels:
+            cheat_scores = np.array(
+                [
+                    scores_dict[f]
+                    for f in test_files
+                    if label_by_session[f] == cheat_label and f in scores_dict
+                ]
+            )
+            if len(legit_scores) == 0 or len(cheat_scores) == 0:
+                continue
+            y = np.concatenate(
+                [np.zeros(len(legit_scores)), np.ones(len(cheat_scores))]
+            )
+            s = np.concatenate([legit_scores, cheat_scores])
+            try:
+                roc = roc_auc_score(y, s)
+                pr = average_precision_score(y, s)
+                det_rate = _detection_rate_at_fpr(y, s, fpr_threshold)
+            except ValueError:
+                roc = pr = det_rate = float("nan")
+            rows.append(
+                BenchmarkResult(
+                    detector=detector_name,
+                    cheat_label=cheat_label,
+                    n_legit=int(len(legit_scores)),
+                    n_cheat=int(len(cheat_scores)),
+                    roc_auc=float(roc),
+                    pr_auc=float(pr),
+                    detection_rate_at_fpr=float(det_rate),
+                    fpr_threshold=fpr_threshold,
+                    mean_score_legit=float(np.mean(legit_scores)),
+                    mean_score_cheat=float(np.mean(cheat_scores)),
+                )
+            )
+        return rows
+
+    out_rows: list[BenchmarkResult] = []
+    for det in detector_names:
+        out_rows.extend(_build_result(det, test_per_detector[det]))
+    out_rows.extend(_build_result("Combined", test_combined))
+
+    return pd.DataFrame([r.__dict__ for r in out_rows])
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -801,6 +1019,13 @@ def run(include_lstm_ae: bool = True) -> None:
             log.warning(
                 "LSTM-AE benchmark failed: %s — continuing with classical only", e
             )
+
+    log.info("\n--- Combined-detector benchmark (Phase 4 aggregator) ---")
+    try:
+        combined_results = run_combined_benchmark()
+        results = pd.concat([results, combined_results], ignore_index=True)
+    except Exception as e:
+        log.warning("Combined benchmark failed: %s", e)
 
     out_path = RESULTS_DIR / "benchmark_results.csv"
     results.to_csv(out_path, index=False)
