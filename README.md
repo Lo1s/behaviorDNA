@@ -178,15 +178,30 @@ Opens at `http://localhost:8501` — four tabs: Overview, Player Profiles, Predi
 
 ## Portfolio Roadmap
 
-A 5-phase roadmap targeting anti-cheat ML/AI roles is tracked in [docs/ROADMAP.md](docs/ROADMAP.md). It adds deep learning (LSTM autoencoder), adversarial bot generation + detection benchmarks, real-time streaming inference, and production observability on top of the foundation listed below.
+A 5-phase roadmap targeting anti-cheat ML/AI roles is tracked in detail in [docs/ROADMAP.md](docs/ROADMAP.md). Current status:
+
+| Phase | Goal | Status |
+|---|---|---|
+| 1. [Trajectory & temporal features](docs/ROADMAP.md#phase-1--trajectory--temporal-features) | 7 anti-cheat-targeted window features | ✅ Done — triggerbot AUC 0.50 → 0.87, macro 0.55 → 0.68 |
+| 1.5. [Feature expansion (backlog)](docs/ROADMAP.md#phase-15--feature-expansion-optional) | Further window-feature ideas | 📝 Backlog |
+| 2. [LSTM autoencoder](docs/LSTM_AE.md) | Deep-learning sequence model on raw events | ✅ Done — aimbot chunk AUC 0.53 → **0.78**, triggerbot chunk 0.96 |
+| 3. [Adversarial bots](docs/ADVERSARIAL.md) | Synthetic cheat generator + detection benchmark | ✅ Done — 90 labelled hybrid sessions, full ROC grid |
+| 4. [Streaming + risk aggregation](docs/ROADMAP.md#phase-4--session-level-risk-aggregation--streaming-api) | Live inference + Bayesian multi-detector session score | ⬜ Next |
+| 5. [Statistical rigor & MLOps](docs/ROADMAP.md#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ⬜ Not started |
+
+Legend: ✅ Done · 🚧 In progress · ⬜ Not started · 📝 Backlog
 
 ## TODO / Research Directions
 
 - [x] **External dataset exploration** — CS2CD cheat detection + CaptchaSolve30k mouse kinematic analysis (`notebooks/05_external_datasets.ipynb`)
 - [x] **Multi-model comparison** — benchmark RandomForest, XGBoost, SVC vs LightGBM for identification; LOF, One-Class SVM vs IsolationForest for detection (`notebooks/06_model_comparison.ipynb`)
 - [x] **Promote best models to pipeline** — RandomForest, XGBoost, SVC, LOF, OneClassSVM now selectable via `configs/training.yaml`
-- [x] **Behavioral differentiation analysis** — deep dive into how cheater/bot trajectories differ from legit behavior using CS2CD and CaptchaSolve30k: feature distributions by label, PCA/UMAP separation, example trajectory overlays, and statistical tests (`notebooks/07_behavioral_differentiation.ipynb`)
-- [ ] **Autoencoder / LSTM** — deep learning behavioral fingerprinting (placeholder in config)
+- [x] **Behavioral differentiation analysis** — deep dive into how cheater/bot trajectories differ from legit behavior using CS2CD and CaptchaSolve30k (`notebooks/07_behavioral_differentiation.ipynb`)
+- [x] **Adversarial bot generation + detection benchmark** — synthetic aimbot/triggerbot/macro generator, 90 labelled hybrid sessions, per-detector ROC grid (`notebooks/10_adversarial_bots.ipynb`, `docs/ADVERSARIAL.md`)
+- [x] **Trajectory & temporal features** — 7 anti-cheat-targeted features (curvature, path efficiency, click reaction time, keystroke periodicity, …) closing the triggerbot + macro detection gap (`notebooks/08_trajectory_features.ipynb`, `docs/FEATURES.md`)
+- [x] **LSTM autoencoder on raw event sequences** — PyTorch sequence model, GPU-accelerated (RTX 3070), solves the aimbot detection gap at the chunk level (AUC 0.78). 11-step tutorial in `notebooks/09_lstm_autoencoder.ipynb`; full architecture write-up in `docs/LSTM_AE.md`
+- [ ] **Streaming inference + Bayesian session aggregation** — WebSocket scoring, live dashboard, multi-detector risk combination (Phase 4)
+- [ ] **Calibration + SHAP + drift monitor + MLflow registry** — production polish (Phase 5)
 - [x] **Real-time dashboard** — four-tab Streamlit app in `dashboard/app.py`
 
 ---
