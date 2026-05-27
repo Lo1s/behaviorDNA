@@ -25,6 +25,8 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from pipeline.models.lstm_ae import (
     LSTMAutoencoder,
+    load_lstm_ae,
+    save_lstm_ae,
     score_sequences,
     train_lstm_ae,
 )
@@ -208,6 +210,40 @@ class TestTrainingLoop:
 # ---------------------------------------------------------------------------
 # Inference helpers
 # ---------------------------------------------------------------------------
+
+
+class TestSaveLoadRoundtrip:
+    def test_save_load_produces_identical_outputs(self, model, tmp_path):
+        # Bake the model with random weights, run a forward pass, save, reload, compare.
+        x = torch.randn(3, 16, 8)
+        with torch.no_grad():
+            original_out = model(x).numpy()
+
+        stats = {
+            "mean": np.zeros(8, dtype=np.float32),
+            "std": np.ones(8, dtype=np.float32),
+        }
+        weights_path, meta_path = save_lstm_ae(
+            model, stats, tmp_path, config={"foo": 1}
+        )
+        assert weights_path.exists()
+        assert meta_path.exists()
+
+        loaded_model, loaded_stats, meta = load_lstm_ae(tmp_path, device="cpu")
+        assert meta["config"] == {"foo": 1}
+        np.testing.assert_array_equal(loaded_stats["mean"], stats["mean"])
+        np.testing.assert_array_equal(loaded_stats["std"], stats["std"])
+        # Architecture metadata round-trips
+        assert loaded_model.hidden_dim == model.hidden_dim
+        assert loaded_model.bottleneck_dim == model.bottleneck_dim
+        # Same input → same output (within float tolerance)
+        with torch.no_grad():
+            loaded_out = loaded_model(x).numpy()
+        np.testing.assert_allclose(loaded_out, original_out, rtol=1e-5, atol=1e-6)
+
+    def test_load_missing_files_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_lstm_ae(tmp_path)
 
 
 class TestScoreSequences:

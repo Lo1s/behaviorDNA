@@ -10,12 +10,16 @@ Custom PyTorch models that don't fit the scikit-learn shape used by
 
 from pipeline.models.lstm_ae import (
     LSTMAutoencoder,
+    load_lstm_ae,
+    save_lstm_ae,
     score_sequences,
     train_lstm_ae,
 )
 
 __all__ = [
     "LSTMAutoencoder",
+    "load_lstm_ae",
+    "save_lstm_ae",
     "score_sequences",
     "train_lstm_ae",
 ]

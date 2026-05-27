@@ -40,8 +40,10 @@ back to CPU silently. See ``docs/LSTM_AE.md`` for the full write-up.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -340,3 +342,113 @@ def score_sequences(
         scores.extend(batch_scores.detach().cpu().tolist())
 
     return np.asarray(scores, dtype=np.float32)
+
+
+# ---------------------------------------------------------------------------
+# Persistence — save and reload trained models for the streaming API
+# ---------------------------------------------------------------------------
+
+LSTM_AE_WEIGHTS_NAME = "lstm_ae.pt"
+LSTM_AE_META_NAME = "lstm_ae_meta.json"
+
+
+def save_lstm_ae(
+    model: LSTMAutoencoder,
+    normalizer_stats: dict,
+    out_dir: Path,
+    *,
+    config: dict | None = None,
+    history: TrainingHistory | None = None,
+) -> tuple[Path, Path]:
+    """Persist a trained LSTM-AE to ``out_dir``.
+
+    Writes two files:
+
+    - ``lstm_ae.pt``  — state_dict (architecture-agnostic weights)
+    - ``lstm_ae_meta.json`` — architecture config, normaliser stats, optional
+      training metrics. Everything ``load_lstm_ae`` needs to rebuild the
+      model and prepare new inputs.
+
+    Returns the two paths in the order above.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    weights_path = out_dir / LSTM_AE_WEIGHTS_NAME
+    meta_path = out_dir / LSTM_AE_META_NAME
+
+    torch.save(model.state_dict(), weights_path)
+
+    meta: dict = {
+        "feature_dim": int(model.feature_dim),
+        "hidden_dim": int(model.hidden_dim),
+        "bottleneck_dim": int(model.bottleneck_dim),
+        "num_layers": int(model.num_layers),
+        "normalizer": {
+            "mean": np.asarray(normalizer_stats["mean"]).tolist(),
+            "std": np.asarray(normalizer_stats["std"]).tolist(),
+        },
+    }
+    if config is not None:
+        meta["config"] = config
+    if history is not None:
+        meta["training"] = {
+            "train_loss": [float(x) for x in history.train_loss],
+            "val_loss": [float(x) for x in history.val_loss],
+            "best_val_loss": float(history.best_val_loss),
+            "best_epoch": int(history.best_epoch),
+            "device": history.device,
+        }
+
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+
+    return weights_path, meta_path
+
+
+def load_lstm_ae(
+    out_dir: Path, *, device: str = "auto"
+) -> tuple[LSTMAutoencoder, dict, dict]:
+    """Load a persisted LSTM-AE produced by :func:`save_lstm_ae`.
+
+    Returns
+    -------
+    (model, normalizer_stats, meta)
+        - ``model`` — restored ``LSTMAutoencoder``, in eval mode, moved to the
+          selected device.
+        - ``normalizer_stats`` — ``{"mean": np.ndarray(8,), "std": np.ndarray(8,)}``
+          suitable for ``pipeline.sequences.preprocessing.apply_normalizer``.
+        - ``meta`` — the full metadata dict (config, training history, etc.).
+    """
+    out_dir = Path(out_dir)
+    weights_path = out_dir / LSTM_AE_WEIGHTS_NAME
+    meta_path = out_dir / LSTM_AE_META_NAME
+
+    if not weights_path.exists() or not meta_path.exists():
+        raise FileNotFoundError(
+            f"Could not find both {LSTM_AE_WEIGHTS_NAME} and {LSTM_AE_META_NAME} "
+            f"in {out_dir}"
+        )
+
+    with open(meta_path, encoding="utf-8") as f:
+        meta = json.load(f)
+
+    torch_device = _select_device(device)
+    model = LSTMAutoencoder(
+        feature_dim=meta["feature_dim"],
+        hidden_dim=meta["hidden_dim"],
+        bottleneck_dim=meta["bottleneck_dim"],
+        num_layers=meta["num_layers"],
+        # dropout doesn't affect inference — restore to 0 by convention
+        dropout=0.0,
+    )
+    state_dict = torch.load(weights_path, map_location=torch_device, weights_only=True)
+    model.load_state_dict(state_dict)
+    model.to(torch_device).eval()
+
+    norm = meta["normalizer"]
+    normalizer_stats = {
+        "mean": np.asarray(norm["mean"], dtype=np.float32),
+        "std": np.asarray(norm["std"], dtype=np.float32),
+    }
+    return model, normalizer_stats, meta

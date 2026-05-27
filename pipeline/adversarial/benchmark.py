@@ -495,6 +495,7 @@ def run_lstm_ae_benchmark(
     device: str = "auto",
     val_fraction: float = 0.15,
     seed: int = 42,
+    model_dir: Path | None = None,
 ) -> pd.DataFrame:
     """Train an LSTM-AE on legit sessions, score every session per cheat type.
 
@@ -517,7 +518,12 @@ def run_lstm_ae_benchmark(
     import torch
     from torch.utils.data import DataLoader
 
-    from pipeline.models.lstm_ae import score_sequences, train_lstm_ae
+    from pipeline.models.lstm_ae import (
+        LSTM_AE_WEIGHTS_NAME,
+        load_lstm_ae,
+        score_sequences,
+        train_lstm_ae,
+    )
     from pipeline.sequences.dataset import EventSequenceDataset
     from pipeline.sequences.preprocessing import (
         apply_normalizer,
@@ -540,63 +546,86 @@ def run_lstm_ae_benchmark(
         {k: len(v) for k, v in by_label.items() if k != "legit"},
     )
 
-    # Train / val split on legit only
-    n_val = max(1, int(round(len(legit_items) * val_fraction)))
-    rng = np.random.default_rng(seed)
-    perm = rng.permutation(len(legit_items))
-    val_idx = set(perm[:n_val].tolist())
-    train_legit = [legit_items[i] for i in range(len(legit_items)) if i not in val_idx]
-    val_legit = [legit_items[i] for i in range(len(legit_items)) if i in val_idx]
-
-    # Fit normalizer on training-fold tensors only
-    stats = fit_normalizer([t for _, t in train_legit])
-
-    def make_loader(items, shuffle):
-        tensors = [apply_normalizer(t, stats) for _, t in items]
-        sids = [name for name, _ in items]
-        ds = EventSequenceDataset(
-            tensors, chunk_length=chunk_length, stride=stride, session_ids=sids
+    # If a persisted artifact exists, reuse it. Saves 30-60s per benchmark run
+    # and ensures the streaming API + benchmark share the same model weights.
+    if model_dir is None:
+        model_dir = ROOT / "models"
+    artifact_path = Path(model_dir) / LSTM_AE_WEIGHTS_NAME
+    if artifact_path.exists():
+        log.info(
+            "Found persisted LSTM-AE at %s — loading instead of retraining",
+            artifact_path,
         )
-        if len(ds) == 0:
-            return None
-        return DataLoader(
-            ds, batch_size=batch_size, shuffle=shuffle, num_workers=0, pin_memory=True
+        model, stats, meta = load_lstm_ae(model_dir, device=device)
+        # Honour the saved config's chunk_length / stride so scoring uses the
+        # same windowing the model was trained with.
+        cfg = meta.get("config") or {}
+        chunk_length = int(cfg.get("chunk_length", chunk_length))
+        stride = int(cfg.get("stride", stride))
+    else:
+        # Train / val split on legit only
+        n_val = max(1, int(round(len(legit_items) * val_fraction)))
+        rng = np.random.default_rng(seed)
+        perm = rng.permutation(len(legit_items))
+        val_idx = set(perm[:n_val].tolist())
+        train_legit = [
+            legit_items[i] for i in range(len(legit_items)) if i not in val_idx
+        ]
+        val_legit = [legit_items[i] for i in range(len(legit_items)) if i in val_idx]
+
+        # Fit normalizer on training-fold tensors only
+        stats = fit_normalizer([t for _, t in train_legit])
+
+        def make_loader(items, shuffle):
+            tensors = [apply_normalizer(t, stats) for _, t in items]
+            sids = [name for name, _ in items]
+            ds = EventSequenceDataset(
+                tensors, chunk_length=chunk_length, stride=stride, session_ids=sids
+            )
+            if len(ds) == 0:
+                return None
+            return DataLoader(
+                ds,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                num_workers=0,
+                pin_memory=True,
+            )
+
+        # Train loader uses overlapping chunks; val uses non-overlapping so the
+        # held-out signal isn't measured on near-duplicates.
+        train_loader = make_loader(train_legit, shuffle=True)
+        val_loader = make_loader(val_legit, shuffle=False)
+
+        if train_loader is None:
+            raise RuntimeError(
+                "Train loader empty — every legit session is shorter than chunk_length"
+            )
+
+        log.info(
+            "Training LSTM-AE (chunk_length=%d, stride=%d, hidden=%d, bottleneck=%d)",
+            chunk_length,
+            stride,
+            hidden_dim,
+            bottleneck_dim,
         )
-
-    # Train loader uses overlapping chunks; val uses non-overlapping so the
-    # held-out signal isn't measured on near-duplicates.
-    train_loader = make_loader(train_legit, shuffle=True)
-    val_loader = make_loader(val_legit, shuffle=False)
-
-    if train_loader is None:
-        raise RuntimeError(
-            "Train loader empty — every legit session is shorter than chunk_length"
+        model, history = train_lstm_ae(
+            train_loader,
+            val_loader,
+            hidden_dim=hidden_dim,
+            bottleneck_dim=bottleneck_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+            lr=lr,
+            epochs=epochs,
+            device=device,
+            log_every=5,
         )
-
-    log.info(
-        "Training LSTM-AE (chunk_length=%d, stride=%d, hidden=%d, bottleneck=%d)",
-        chunk_length,
-        stride,
-        hidden_dim,
-        bottleneck_dim,
-    )
-    model, history = train_lstm_ae(
-        train_loader,
-        val_loader,
-        hidden_dim=hidden_dim,
-        bottleneck_dim=bottleneck_dim,
-        num_layers=num_layers,
-        dropout=dropout,
-        lr=lr,
-        epochs=epochs,
-        device=device,
-        log_every=5,
-    )
-    log.info(
-        "Training complete — best val_loss=%.5f at epoch %d",
-        history.best_val_loss,
-        history.best_epoch,
-    )
+        log.info(
+            "Training complete — best val_loss=%.5f at epoch %d",
+            history.best_val_loss,
+            history.best_epoch,
+        )
 
     # --- Chunk-level scoring: load every session, score every non-overlapping
     # chunk, and (for cheat files) flag chunks that overlap a cheat_segment.
