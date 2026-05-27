@@ -446,7 +446,304 @@ def _format_summary(results: pd.DataFrame) -> str:
     return pivot.round(3).to_string()
 
 
-def run() -> None:
+# ---------------------------------------------------------------------------
+# LSTM Autoencoder benchmark (Phase 2)
+# ---------------------------------------------------------------------------
+#
+# The classical detectors above consume per-window aggregated features. The
+# LSTM-AE operates natively on the raw event stream, so it bypasses the
+# feature pipeline entirely. We give it its own benchmark function and merge
+# the results into the same BenchmarkResult format so the existing CSV /
+# heatmap rendering keeps working.
+
+
+def _load_session_tensors(synthetic_dir: Path = SYNTHETIC_DIR) -> dict[str, list]:
+    """Load every synthetic session JSON into ``(label, file_name, tensor)`` tuples.
+
+    Returns a dict keyed by cheat label, value = list of ``(file_name, tensor)``.
+    Sessions with no events are dropped.
+    """
+    # Imported lazily so the classical benchmark can run without torch.
+    from pipeline.sequences.preprocessing import session_to_event_tensor
+
+    out: dict[str, list] = {}
+    for path in sorted(synthetic_dir.glob("*.json")):
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        tensor = session_to_event_tensor(data)
+        if len(tensor) == 0:
+            continue
+        label = data.get("cheat_label", "legit")
+        out.setdefault(label, []).append((path.name, tensor))
+    return out
+
+
+def run_lstm_ae_benchmark(
+    synthetic_dir: Path = SYNTHETIC_DIR,
+    *,
+    chunk_length: int = 64,
+    stride: int = 32,
+    hidden_dim: int = 64,
+    bottleneck_dim: int = 16,
+    num_layers: int = 2,
+    dropout: float = 0.2,
+    lr: float = 1e-3,
+    epochs: int = 30,
+    batch_size: int = 256,
+    score_percentile: float = 95.0,
+    fpr_threshold: float = 0.05,
+    device: str = "auto",
+    val_fraction: float = 0.15,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Train an LSTM-AE on legit sessions, score every session per cheat type.
+
+    Returns ``BenchmarkResult`` rows in the same format as :func:`run_benchmark`,
+    one per cheat type **and** evaluation granularity:
+
+    - ``detector="LSTMAutoencoder/chunk"`` — chunk-level AUC, using the
+      ``cheat_segments`` field of each synthetic session to label individual
+      chunks. This is the headline metric: it shows what the model actually
+      learnt to flag.
+    - ``detector="LSTMAutoencoder/session"`` — session-level AUC via
+      ``score_percentile`` aggregation. Comparable to the classical
+      detectors but typically much weaker — cheats affect a small minority
+      of chunks in any session, and the legit-baseline's natural variance
+      tail overlaps with the cheat signal at the session level. This gap
+      motivates the multi-detector Bayesian aggregation planned in Phase 4.
+    """
+    # Lazy imports — torch + the LSTM module only needed for this path.
+    import numpy as np
+    import torch
+    from torch.utils.data import DataLoader
+
+    from pipeline.models.lstm_ae import score_sequences, train_lstm_ae
+    from pipeline.sequences.dataset import EventSequenceDataset
+    from pipeline.sequences.preprocessing import (
+        apply_normalizer,
+        fit_normalizer,
+        session_to_event_tensor,
+    )
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+    log.info("Loading synthetic session tensors from %s", synthetic_dir)
+    by_label = _load_session_tensors(synthetic_dir)
+    if "legit" not in by_label or not by_label["legit"]:
+        raise RuntimeError("No legit sessions found — cannot train LSTM-AE")
+
+    legit_items = by_label["legit"]
+    log.info(
+        "  %d legit / %s cheat sessions",
+        len(legit_items),
+        {k: len(v) for k, v in by_label.items() if k != "legit"},
+    )
+
+    # Train / val split on legit only
+    n_val = max(1, int(round(len(legit_items) * val_fraction)))
+    rng = np.random.default_rng(seed)
+    perm = rng.permutation(len(legit_items))
+    val_idx = set(perm[:n_val].tolist())
+    train_legit = [legit_items[i] for i in range(len(legit_items)) if i not in val_idx]
+    val_legit = [legit_items[i] for i in range(len(legit_items)) if i in val_idx]
+
+    # Fit normalizer on training-fold tensors only
+    stats = fit_normalizer([t for _, t in train_legit])
+
+    def make_loader(items, shuffle):
+        tensors = [apply_normalizer(t, stats) for _, t in items]
+        sids = [name for name, _ in items]
+        ds = EventSequenceDataset(
+            tensors, chunk_length=chunk_length, stride=stride, session_ids=sids
+        )
+        if len(ds) == 0:
+            return None
+        return DataLoader(
+            ds, batch_size=batch_size, shuffle=shuffle, num_workers=0, pin_memory=True
+        )
+
+    # Train loader uses overlapping chunks; val uses non-overlapping so the
+    # held-out signal isn't measured on near-duplicates.
+    train_loader = make_loader(train_legit, shuffle=True)
+    val_loader = make_loader(val_legit, shuffle=False)
+
+    if train_loader is None:
+        raise RuntimeError(
+            "Train loader empty — every legit session is shorter than chunk_length"
+        )
+
+    log.info(
+        "Training LSTM-AE (chunk_length=%d, stride=%d, hidden=%d, bottleneck=%d)",
+        chunk_length,
+        stride,
+        hidden_dim,
+        bottleneck_dim,
+    )
+    model, history = train_lstm_ae(
+        train_loader,
+        val_loader,
+        hidden_dim=hidden_dim,
+        bottleneck_dim=bottleneck_dim,
+        num_layers=num_layers,
+        dropout=dropout,
+        lr=lr,
+        epochs=epochs,
+        device=device,
+        log_every=5,
+    )
+    log.info(
+        "Training complete — best val_loss=%.5f at epoch %d",
+        history.best_val_loss,
+        history.best_epoch,
+    )
+
+    # --- Chunk-level scoring: load every session, score every non-overlapping
+    # chunk, and (for cheat files) flag chunks that overlap a cheat_segment.
+    def chunk_data(path: Path):
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        tensor = session_to_event_tensor(data)
+        if len(tensor) < chunk_length:
+            return None
+        normalized = apply_normalizer(tensor, stats)
+        n_chunks = len(normalized) // chunk_length
+        chunks = np.stack(
+            [
+                normalized[i * chunk_length : (i + 1) * chunk_length]
+                for i in range(n_chunks)
+            ]
+        )
+
+        # Flag chunks overlapping any cheat_segment
+        segs = data.get("cheat_segments") or []
+        contains_cheat = np.zeros(n_chunks, dtype=bool)
+        if segs and data.get("events"):
+            times = np.array([ev.get("t", 0.0) for ev in data["events"]])
+            in_seg = np.zeros(len(times), dtype=bool)
+            for s_start, s_end in segs:
+                in_seg |= (times >= s_start) & (times <= s_end)
+            for i in range(n_chunks):
+                contains_cheat[i] = in_seg[
+                    i * chunk_length : (i + 1) * chunk_length
+                ].any()
+
+        chunk_scores = score_sequences(
+            model,
+            torch.from_numpy(chunks).float(),
+            batch_size=batch_size,
+            device=device,
+        )
+        return chunk_scores, contains_cheat
+
+    # Aggregate chunk-level + session-level metrics per cheat type
+    rows: list[BenchmarkResult] = []
+    paths_by_label = {label: [] for label in by_label}
+    for path in sorted(synthetic_dir.glob("*.json")):
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        paths_by_label.setdefault(data.get("cheat_label", "legit"), []).append(path)
+
+    # Pre-score legit sessions once — used by both granularities
+    legit_chunk_scores: list[np.ndarray] = []
+    legit_session_scores: list[float] = []
+    for path in paths_by_label.get("legit", []):
+        out = chunk_data(path)
+        if out is None:
+            continue
+        scores, _ = out
+        legit_chunk_scores.append(scores)
+        legit_session_scores.append(float(np.percentile(scores, score_percentile)))
+
+    if not legit_chunk_scores:
+        raise RuntimeError(
+            "No legit session produced any chunks at the configured chunk_length"
+        )
+
+    legit_chunks_flat = np.concatenate(legit_chunk_scores)
+    legit_session_arr = np.array(legit_session_scores, dtype=np.float64)
+
+    for label in sorted(set(paths_by_label) - {"legit"}):
+        cheat_chunk_scores_pos: list[float] = []  # chunks overlapping a cheat_segment
+        cheat_chunk_scores_neg: list[float] = []  # chunks in the cheat file but clean
+        cheat_session_scores: list[float] = []
+        for path in paths_by_label[label]:
+            out = chunk_data(path)
+            if out is None:
+                continue
+            scores, contains_cheat = out
+            cheat_chunk_scores_pos.extend(scores[contains_cheat])
+            cheat_chunk_scores_neg.extend(scores[~contains_cheat])
+            cheat_session_scores.append(float(np.percentile(scores, score_percentile)))
+
+        # --- Chunk-level AUC: cheat-bearing chunks vs all legit chunks ---
+        if cheat_chunk_scores_pos:
+            chunk_y = np.concatenate(
+                [
+                    np.zeros(len(legit_chunks_flat)),
+                    np.ones(len(cheat_chunk_scores_pos)),
+                ]
+            )
+            chunk_s = np.concatenate(
+                [legit_chunks_flat, np.array(cheat_chunk_scores_pos)]
+            )
+            try:
+                chunk_roc = roc_auc_score(chunk_y, chunk_s)
+                chunk_pr = average_precision_score(chunk_y, chunk_s)
+                chunk_det = _detection_rate_at_fpr(chunk_y, chunk_s, fpr_threshold)
+            except ValueError:
+                chunk_roc = chunk_pr = chunk_det = float("nan")
+            rows.append(
+                BenchmarkResult(
+                    detector="LSTMAutoencoder/chunk",
+                    cheat_label=label,
+                    n_legit=int(len(legit_chunks_flat)),
+                    n_cheat=int(len(cheat_chunk_scores_pos)),
+                    roc_auc=float(chunk_roc),
+                    pr_auc=float(chunk_pr),
+                    detection_rate_at_fpr=float(chunk_det),
+                    fpr_threshold=fpr_threshold,
+                    mean_score_legit=float(np.mean(legit_chunks_flat)),
+                    mean_score_cheat=float(np.mean(cheat_chunk_scores_pos)),
+                )
+            )
+
+        # --- Session-level AUC: per-session p95 ---
+        if cheat_session_scores:
+            sess_y = np.concatenate(
+                [np.zeros(len(legit_session_arr)), np.ones(len(cheat_session_scores))]
+            )
+            sess_s = np.concatenate([legit_session_arr, np.array(cheat_session_scores)])
+            try:
+                sess_roc = roc_auc_score(sess_y, sess_s)
+                sess_pr = average_precision_score(sess_y, sess_s)
+                sess_det = _detection_rate_at_fpr(sess_y, sess_s, fpr_threshold)
+            except ValueError:
+                sess_roc = sess_pr = sess_det = float("nan")
+            rows.append(
+                BenchmarkResult(
+                    detector="LSTMAutoencoder/session",
+                    cheat_label=label,
+                    n_legit=int(len(legit_session_arr)),
+                    n_cheat=int(len(cheat_session_scores)),
+                    roc_auc=float(sess_roc),
+                    pr_auc=float(sess_pr),
+                    detection_rate_at_fpr=float(sess_det),
+                    fpr_threshold=fpr_threshold,
+                    mean_score_legit=float(np.mean(legit_session_arr)),
+                    mean_score_cheat=float(np.mean(cheat_session_scores)),
+                )
+            )
+
+    return pd.DataFrame([r.__dict__ for r in rows])
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def run(include_lstm_ae: bool = True) -> None:
     logging.basicConfig(
         format="%(asctime)s [%(levelname)s] %(message)s",
         level=logging.INFO,
@@ -465,6 +762,17 @@ def run() -> None:
     )
 
     results = run_benchmark(df)
+
+    if include_lstm_ae:
+        log.info("\n--- LSTM autoencoder benchmark ---")
+        try:
+            lstm_results = run_lstm_ae_benchmark()
+            results = pd.concat([results, lstm_results], ignore_index=True)
+        except Exception as e:
+            log.warning(
+                "LSTM-AE benchmark failed: %s — continuing with classical only", e
+            )
+
     out_path = RESULTS_DIR / "benchmark_results.csv"
     results.to_csv(out_path, index=False)
     log.info("Wrote %s", out_path)
