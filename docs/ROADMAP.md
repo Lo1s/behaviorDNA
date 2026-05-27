@@ -18,12 +18,13 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 | Phase | Goal | Status |
 |---|---|---|
 | 1. [Trajectory & temporal features](#phase-1--trajectory--temporal-features) | 7 new anti-cheat-relevant features | ✅ Done |
-| 2. [LSTM autoencoder](#phase-2--lstm-autoencoder-for-anomaly-detection) | Deep-learning sequence model | ⬜ Not started |
+| 1.5. [Feature expansion (optional)](#phase-15--feature-expansion-optional) | Backlog of further feature ideas, revisited after Phase 5 | 📝 Backlog |
+| 2. [LSTM autoencoder](#phase-2--lstm-autoencoder-for-anomaly-detection) | Deep-learning sequence model | 🚧 In progress |
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
 | 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Live inference dashboard | ⬜ Not started |
 | 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ⬜ Not started |
 
-Legend: ⬜ Not started · 🚧 In progress · ✅ Done
+Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
 
 ---
 
@@ -50,6 +51,19 @@ Legend: ⬜ Not started · 🚧 In progress · ✅ Done
 - [x] Re-ran Phase 3 benchmark with new features + per-session aggregation
 
 **Key results:** triggerbot AUC **0.50 → 0.87** (OneClassSVM), macro AUC **0.55 → 0.68**. Aimbot remained at AUC 0.53 — the 150 ms snap signal is still buried in 30 s of mouse data, motivating the Phase 2 LSTM autoencoder operating directly on raw event sequences.
+
+---
+
+## Phase 1.5 — Feature expansion (optional)
+
+**Backlog of further window-feature ideas**, revisited after Phase 5 calibration/SHAP analysis identifies gaps. Not scheduled — promote individual entries if a real signal gap motivates them.
+
+- **Flick detection** — `flick_count`, `flick_precision` (post-flick dispersion). On the Phase 1 draft list; dropped because the signal partially lives in `mouse_curvature_std` + `path_efficiency`. Worth adding if aimbot variants emerge that snap-and-hold differently.
+- **Keystroke overlap** — fraction of window with > 1 key held. Useful for crouch-jump / strafe macros common in FPS cheats.
+- **Click pattern features** — left/right ratio, click hold duration, double-click rate. Useful for triggerbot variants that fire bursts.
+- **Per-event-type kinematics** — split mouse_move statistics by activity context (aiming vs strafing). Needs game-state metadata.
+- **Frequency-domain summaries** — windowed FFT energy in macro-relevant bands (5–10 Hz). The time-domain `keystroke_periodicity` already captures the signal cheaply; this is the thorough version.
+- **Latency-distribution percentiles** instead of means — `click_reaction_p5`, `mouse_curvature_p10`. Lift the percentile-aggregation idea Phase 2 uses at the sequence level back into window features.
 
 ---
 
