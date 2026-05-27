@@ -219,9 +219,15 @@ class SessionStreamState:
         # process_session_windows returns *zero-anchored* windows; since this
         # batch contains exactly one 30s span it will produce 1 row.
         feat_row = windows[0]
-        x = np.array(
-            [feat_row.get(col, 0.0) or 0.0 for col in FEATURE_COLS], dtype=np.float64
-        ).reshape(1, -1)
+        # NaN can come from feature helpers when the window has e.g. no clicks
+        # or no key events. The training pipeline does the same fillna(0.0).
+        x_vals = []
+        for col in FEATURE_COLS:
+            v = feat_row.get(col, 0.0)
+            if v is None or (isinstance(v, float) and np.isnan(v)):
+                v = 0.0
+            x_vals.append(float(v))
+        x = np.array(x_vals, dtype=np.float64).reshape(1, -1)
         x_scaled = self.feature_scaler.transform(x)
 
         per_detector_now: dict[str, float] = {}
