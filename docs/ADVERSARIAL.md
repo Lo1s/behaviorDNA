@@ -85,7 +85,9 @@ The dataset generator (`pipeline.adversarial.generate_dataset`) produces 6 varia
 
 ---
 
-## Results (current pipeline, 18 window features)
+## Results
+
+### Baseline — original 18 features + per-window evaluation (Phase 3)
 
 ROC AUC heatmap (every cell ≈ 0.5 = random chance):
 
@@ -95,26 +97,37 @@ ROC AUC heatmap (every cell ≈ 0.5 = random chance):
 | LocalOutlierFactor | 0.50 | 0.51 | 0.50 |
 | OneClassSVM | 0.50 | 0.55 | 0.50 |
 
-**Read:** the current feature set fails to discriminate any of these cheats from legit play. See [notebooks/10_adversarial_bots.ipynb](../notebooks/10_adversarial_bots.ipynb) for the ROC grid and detection-rate heatmap.
+**Read:** the original feature set fails to discriminate any cheat from legit play. See [notebooks/10_adversarial_bots.ipynb](../notebooks/10_adversarial_bots.ipynb).
 
-This is **not** a failure of the synthetic data — the same data, scored at the event level (curvature, click reaction time, FFT coefficient of variation), separates cleanly. The failure is in aggregation:
+This is **not** a failure of the synthetic data — the same data, scored at the event level (curvature, click reaction time, FFT coefficient of variation), separates cleanly. The failure was twofold:
 
-1. **Temporal averaging** — a 150 ms aimbot snap is 0.5 % of a 30 s window
-2. **Magnitude-only features** — `speed_mean`, `accel_mean`, `jitter` discard direction and geometry
-3. **No timing features** — none of the 18 features measure the gap between `mouse_move` and the click that follows
+1. **Aggregation dilution.** A 150 ms aimbot snap is 0.5 % of a 30 s window. `speed_mean`, `accel_mean`, `jitter` averaged across the whole window discard the snap signal.
+2. **Cheat localization.** Each synthetic file is labelled `aimbot`/`macro`/`triggerbot` but only some of its windows actually contain cheat events. Per-window evaluation mixes cheat-containing windows with legit-looking siblings.
+
+### After Phase 1 — 25 features + per-session aggregation
+
+Phase 1 added 7 trajectory and timing features (see [FEATURES.md](FEATURES.md)) and the benchmark gained a `session_max` aggregation mode that flags whole sessions on their *maximum* per-window anomaly score — the realistic production decision.
+
+| Detector | aimbot | macro | triggerbot |
+|---|---|---|---|
+| IsolationForest | 0.50 | 0.47 | 0.49 |
+| LocalOutlierFactor | 0.49 | 0.54 | 0.48 |
+| OneClassSVM | 0.53 | 0.68 | **0.87** |
+
+**Read:** triggerbot detection jumped from chance to AUC 0.87 (`click_reaction_mean` collapses to ~0 ms in the cheat window, and per-session-max catches that window even though it lives in a mostly-normal session). Macro climbed to 0.68 via `keystroke_periodicity`. Aimbot remained stubbornly close to chance — the 150 ms snap signal is still buried by per-window mean aggregation.
+
+**The aimbot gap is the case for Phase 2 — LSTM autoencoder on raw event sequences.** A sequence model bypasses window aggregation entirely and can flag the snap directly.
 
 ---
 
 ## What closes the gap
 
-This is exactly the motivation for the next two phases of the roadmap:
+| Phase | What it adds | Closes which gap | Status |
+|---|---|---|---|
+| Phase 1 — Trajectory & temporal features | `mouse_curvature_*`, `path_efficiency`, `direction_changes_per_sec`, `click_reaction_mean`, `inter_click_movement`, `keystroke_periodicity` + per-session aggregation | Magnitude-only features → geometric features; per-window evaluation → per-session evaluation | ✅ done — triggerbot 0.87, macro 0.68 |
+| Phase 2 — LSTM autoencoder | Sequence model trained directly on raw events | Window aggregation entirely | ⬜ next |
 
-| Phase | What it adds | Closes which gap |
-|---|---|---|
-| Phase 1 — Trajectory & temporal features | `mouse_curvature_mean/std`, `flick_count`, `flick_precision`, `direction_changes_per_sec`, `path_efficiency`, `inter_click_movement`, `keystroke_overlap_ratio` | Magnitude-only features → geometric features |
-| Phase 2 — LSTM autoencoder | Sequence model trained directly on raw events | Aggregation entirely |
-
-After Phase 1, re-running this benchmark should light up the detection heatmap. After Phase 2, it should light up even more — especially for the soft aimbot variant.
+Phase 1 lit up triggerbot and macro detection. Phase 2 will target the aimbot signal that's too brief to survive any window aggregation.
 
 ---
 

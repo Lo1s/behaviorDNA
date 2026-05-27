@@ -4,12 +4,15 @@ pipeline/features/run.py
 Stage 2 — Feature Engineering: structured Parquet events → behavioral feature windows.
 
 Reads events.parquet and sessions.parquet from data/processed/, slices each session
-into 30-second non-overlapping windows, and computes 18 behavioral features across
-3 groups:
+into 30-second non-overlapping windows, and computes 25 behavioral features across
+5 groups:
 
-  Mouse kinematics  : speed, acceleration, jitter, click intervals
-  Keyboard patterns : hold duration, inter-key interval, burst rate, WASD rhythm
-  Session aggregates: event rate, mouse/key ratio, active time %, scroll stats
+  Mouse kinematics    : speed, acceleration, jitter, click intervals
+  Mouse trajectory    : curvature, path efficiency, direction changes  (Phase 1)
+  Keyboard patterns   : hold duration, inter-key interval, burst rate, WASD rhythm
+  Reaction timing     : click reaction latency, inter-click movement   (Phase 1)
+  Keystroke geometry  : periodicity (CV of inter-key intervals)        (Phase 1)
+  Session aggregates  : event rate, mouse/key ratio, active time %, scroll stats
 
 Sens/DPI normalization is applied to speed/acceleration so sessions recorded at
 different DPI settings are comparable. z-score scaling is deliberately NOT applied
@@ -53,6 +56,11 @@ FEATURE_COLS = [
     "jitter",
     "click_interval_mean",
     "click_interval_std",
+    # Mouse trajectory (Phase 1 — anti-cheat-targeted)
+    "mouse_curvature_mean",
+    "mouse_curvature_std",
+    "path_efficiency",
+    "direction_changes_per_sec",
     # Keyboard patterns
     "hold_mean",
     "hold_std",
@@ -60,6 +68,11 @@ FEATURE_COLS = [
     "iki_std",
     "burst_rate",
     "wasd_rhythm",
+    # Reaction timing (Phase 1 — anti-cheat-targeted)
+    "click_reaction_mean",
+    "inter_click_movement",
+    # Keystroke geometry (Phase 1 — anti-cheat-targeted)
+    "keystroke_periodicity",
     # Session aggregates
     "event_rate",
     "mouse_key_ratio",
@@ -239,6 +252,144 @@ def compute_session_aggregates(
     }
 
 
+def compute_trajectory_features(mm: pd.DataFrame, window_duration_ms: float) -> dict:
+    """Mouse trajectory geometry: curvature, path efficiency, direction changes.
+
+    These features are designed to survive 30-second aggregation while still
+    carrying the geometric signal that distinguishes humans from aimbots:
+
+    - ``mouse_curvature_mean/std`` — distribution of turn angles between
+      consecutive 3-point segments. Aimbot snaps drive both metrics down.
+    - ``path_efficiency`` — Euclidean displacement / total path length.
+      1.0 = perfectly straight; 0.0 = highly self-intersecting.
+    - ``direction_changes_per_sec`` — count of velocity-vector sign flips
+      per second (combined dx + dy). Humans flip often (overshoot/correction);
+      aimbots rarely do.
+    """
+    result: dict = {
+        "mouse_curvature_mean": float("nan"),
+        "mouse_curvature_std": float("nan"),
+        "path_efficiency": float("nan"),
+        "direction_changes_per_sec": float("nan"),
+    }
+
+    if len(mm) < 3:
+        return result
+
+    mm = mm.sort_values("t")
+    xs = mm["x"].astype(float).to_numpy()
+    ys = mm["y"].astype(float).to_numpy()
+
+    # Vectors between consecutive points
+    vx = np.diff(xs)
+    vy = np.diff(ys)
+    norms = np.hypot(vx, vy)
+
+    # Curvature: angle between consecutive non-zero motion vectors
+    valid = norms > 1e-6
+    if valid.sum() >= 2:
+        # Pair vector i with vector i+1, both must be valid
+        pair_valid = valid[:-1] & valid[1:]
+        if pair_valid.any():
+            cos_theta = (vx[:-1] * vx[1:] + vy[:-1] * vy[1:]) / (
+                norms[:-1] * norms[1:] + 1e-12
+            )
+            cos_theta = np.clip(cos_theta, -1.0, 1.0)
+            angles = np.arccos(cos_theta[pair_valid])
+            if angles.size > 0:
+                result["mouse_curvature_mean"] = float(np.mean(angles))
+                result["mouse_curvature_std"] = float(np.std(angles))
+
+    # Path efficiency: straight-line displacement / sum of segment lengths
+    total_path = float(np.sum(norms))
+    if total_path > 1e-6:
+        displacement = math.sqrt((xs[-1] - xs[0]) ** 2 + (ys[-1] - ys[0]) ** 2)
+        result["path_efficiency"] = float(displacement / total_path)
+
+    # Direction changes per second (sign flips in either axis)
+    if window_duration_ms > 0 and len(vx) >= 2:
+        sx = np.sign(vx)
+        sy = np.sign(vy)
+        flips_x = int(np.sum((sx[:-1] != 0) & (sx[1:] != 0) & (sx[:-1] != sx[1:])))
+        flips_y = int(np.sum((sy[:-1] != 0) & (sy[1:] != 0) & (sy[:-1] != sy[1:])))
+        result["direction_changes_per_sec"] = float(
+            (flips_x + flips_y) / (window_duration_ms / 1000.0)
+        )
+
+    return result
+
+
+def compute_reaction_features(window: pd.DataFrame) -> dict:
+    """Reaction timing: click latency and inter-click mouse displacement.
+
+    - ``click_reaction_mean`` — average gap (ms) between each ``mouse_click``
+      press and the most recent prior ``mouse_move``. Triggerbots collapse
+      this to ~0; humans show 100–250 ms.
+    - ``inter_click_movement`` — average Euclidean distance the mouse traveled
+      between consecutive clicks. Cheats firing without repositioning produce
+      near-zero values; humans move the cursor between shots.
+    """
+    result: dict = {
+        "click_reaction_mean": float("nan"),
+        "inter_click_movement": float("nan"),
+    }
+
+    if window.empty:
+        return result
+
+    w = window.sort_values("t")
+    events_t = w["t"].astype(float).to_numpy()
+    types = w["event_type"].to_numpy()
+    xs = w["x"].astype(float).to_numpy()
+    ys = w["y"].astype(float).to_numpy()
+    pressed = w["pressed"].to_numpy()
+
+    # Click-reaction time: time from last mouse_move before each click press
+    reaction_times: list[float] = []
+    last_move_t = None
+    for i in range(len(w)):
+        if types[i] == "mouse_move":
+            last_move_t = events_t[i]
+        elif types[i] == "mouse_click" and pressed[i] is True:
+            if last_move_t is not None:
+                reaction_times.append(events_t[i] - last_move_t)
+    if reaction_times:
+        result["click_reaction_mean"] = float(np.mean(reaction_times))
+
+    # Inter-click movement distance
+    click_mask = (types == "mouse_click") & (pressed == True)  # noqa: E712
+    click_xs = xs[click_mask]
+    click_ys = ys[click_mask]
+    if click_xs.size >= 2:
+        dx = np.diff(click_xs)
+        dy = np.diff(click_ys)
+        result["inter_click_movement"] = float(np.mean(np.hypot(dx, dy)))
+
+    return result
+
+
+def compute_keystroke_periodicity(kp: pd.DataFrame) -> dict:
+    """Coefficient of variation of inter-key-press intervals.
+
+    Macros press keys at perfectly regular intervals → CV → 0.
+    Humans press keys irregularly → CV typically > 0.3.
+
+    This is the time-domain analog of the FFT analysis in notebook 10
+    (a sharp FFT peak ↔ a low-CV interval distribution).
+    """
+    result: dict = {"keystroke_periodicity": float("nan")}
+
+    if len(kp) < 3:
+        return result
+
+    presses = kp.sort_values("t")["t"].astype(float).to_numpy()
+    intervals = np.diff(presses)
+    mean = float(np.mean(intervals))
+    if mean > 1e-6:
+        result["keystroke_periodicity"] = float(np.std(intervals) / mean)
+    return result
+
+
 def process_session_windows(
     session_events: pd.DataFrame,
     norm_factor: float,
@@ -274,7 +425,10 @@ def process_session_windows(
 
         features = {"window_idx": window_idx}
         features.update(compute_mouse_kinematics(mm, mc, norm_factor))
+        features.update(compute_trajectory_features(mm, actual_ms))
         features.update(compute_keyboard_patterns(kp, kr, actual_ms))
+        features.update(compute_reaction_features(window))
+        features.update(compute_keystroke_periodicity(kp))
         features.update(compute_session_aggregates(window, w_start, actual_ms))
         windows.append(features)
 

@@ -41,6 +41,7 @@ MODEL_PATH = ROOT / "models" / "model.pkl"
 
 class FeatureVector(BaseModel):
     session_id: str
+    # Mouse kinematics
     speed_mean: Optional[float] = None
     speed_std: Optional[float] = None
     accel_mean: Optional[float] = None
@@ -48,12 +49,24 @@ class FeatureVector(BaseModel):
     jitter: Optional[float] = None
     click_interval_mean: Optional[float] = None
     click_interval_std: Optional[float] = None
+    # Mouse trajectory (Phase 1)
+    mouse_curvature_mean: Optional[float] = None
+    mouse_curvature_std: Optional[float] = None
+    path_efficiency: Optional[float] = None
+    direction_changes_per_sec: Optional[float] = None
+    # Keyboard patterns
     hold_mean: Optional[float] = None
     hold_std: Optional[float] = None
     iki_mean: Optional[float] = None
     iki_std: Optional[float] = None
     burst_rate: Optional[float] = None
     wasd_rhythm: Optional[float] = None
+    # Reaction timing (Phase 1)
+    click_reaction_mean: Optional[float] = None
+    inter_click_movement: Optional[float] = None
+    # Keystroke geometry (Phase 1)
+    keystroke_periodicity: Optional[float] = None
+    # Session aggregates
     event_rate: Optional[float] = None
     mouse_key_ratio: Optional[float] = None
     active_time_pct: Optional[float] = None
@@ -79,7 +92,10 @@ class AnomalyPrediction(BaseModel):
 
 
 def _vec_to_array(vec: FeatureVector) -> np.ndarray:
-    """Convert Pydantic model to (1, 18) float64 array. None → 0.0 (matches training fillna)."""
+    """Convert Pydantic model to (1, len(FEATURE_COLS)) float64 array.
+
+    None values → 0.0 to match the training-time fillna behaviour.
+    """
     vals = [getattr(vec, col) or 0.0 for col in FEATURE_COLS]
     return np.array(vals, dtype=np.float64).reshape(1, -1)
 

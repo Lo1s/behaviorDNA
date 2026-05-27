@@ -71,7 +71,7 @@ data/splits/
 
 ### Critical design choices that aren't obvious from reading any single file
 
-1. **Window-based features.** All 18 production features (`FEATURE_COLS` in `pipeline/features/run.py`) are aggregates over **30-second non-overlapping windows** (`WINDOW_MS = 30_000`). The constant is hardcoded — changing it requires re-running `dvc repro`.
+1. **Window-based features.** All 25 production features (`FEATURE_COLS` in `pipeline/features/run.py`) are aggregates over **30-second non-overlapping windows** (`WINDOW_MS = 30_000`). The constant is hardcoded — changing it requires re-running `dvc repro`. Full per-feature documentation in `docs/FEATURES.md`.
 
 2. **Sens/DPI normalization.** Mouse kinematics (`speed_*`, `accel_*`) are divided by `norm_factor = sensitivity * dpi / 800.0` before aggregation, so different hardware setups are comparable. This is applied in `compute_mouse_kinematics()` and must NOT be applied again downstream.
 

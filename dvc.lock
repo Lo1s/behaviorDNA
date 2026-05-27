@@ -5,18 +5,18 @@ stages:
     deps:
     - path: data/raw
       hash: md5
-      md5: 60a90ffc0a36453b2072b58735ce007e.dir
-      size: 83177734
-      nfiles: 31
+      md5: a1557977223b3fb07ed3aa0a35f2b6fe.dir
+      size: 86236641
+      nfiles: 32
     - path: pipeline/ingestion/run.py
       hash: md5
-      md5: 159279c6bd3f5958b2635aa808996afa
-      size: 6200
+      md5: 99a5065acea4eef3bf68c9385d054d8e
+      size: 6474
     outs:
     - path: data/processed/sessions.parquet
       hash: md5
-      md5: 4d0c97d83441985a5f3f37f5e07da202
-      size: 6866
+      md5: 55c1281e2814a7c56582e7a51a1b1bcc
+      size: 9689
   features:
     cmd: python -m pipeline.features.run
     deps:
@@ -26,17 +26,17 @@ stages:
       size: 5055570
     - path: data/processed/sessions.parquet
       hash: md5
-      md5: 4d0c97d83441985a5f3f37f5e07da202
-      size: 6866
+      md5: 55c1281e2814a7c56582e7a51a1b1bcc
+      size: 9689
     - path: pipeline/features/run.py
       hash: md5
-      md5: a9509a7fbf3eaf42ed019febf73e6ed6
-      size: 10856
+      md5: 0367aa8e9492841aad3cef779775fae5
+      size: 17011
     outs:
     - path: data/processed/features.parquet
       hash: md5
-      md5: 772840da34c297e65cb54b62cb23a17e
-      size: 22593
+      md5: 3417e3988436e554b3bc2a34632dec97
+      size: 30538
   split:
     cmd: python -m pipeline.features.split
     deps:

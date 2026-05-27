@@ -11,8 +11,11 @@ import pandas as pd
 from pipeline.features.run import (
     FEATURE_COLS,
     compute_keyboard_patterns,
+    compute_keystroke_periodicity,
     compute_mouse_kinematics,
+    compute_reaction_features,
     compute_session_aggregates,
+    compute_trajectory_features,
     process_session_windows,
 )
 
@@ -224,6 +227,168 @@ class TestComputeSessionAggregates:
         window = make_window_df(mm=make_mm(n=5))
         r = compute_session_aggregates(window, w_start=0.0, window_duration_ms=30_000.0)
         assert math.isnan(r["scroll_direction_ratio"])
+
+
+# ---------------------------------------------------------------------------
+# TestComputeTrajectoryFeatures  (Phase 1)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeTrajectoryFeatures:
+    def test_too_few_points_all_nan(self):
+        for n in (0, 1, 2):
+            r = compute_trajectory_features(make_mm(n=n), window_duration_ms=30_000.0)
+            for k in (
+                "mouse_curvature_mean",
+                "mouse_curvature_std",
+                "path_efficiency",
+                "direction_changes_per_sec",
+            ):
+                assert math.isnan(r[k]), f"n={n}: {k} should be NaN"
+
+    def test_straight_line_zero_curvature_full_efficiency(self):
+        # Pure horizontal motion: no turns → curvature ≈ 0; perfectly straight → efficiency = 1
+        mm = make_mm(n=5, dx=10, dy=0)
+        r = compute_trajectory_features(mm, window_duration_ms=30_000.0)
+        assert r["mouse_curvature_mean"] < 1e-6
+        assert r["mouse_curvature_std"] < 1e-6
+        assert abs(r["path_efficiency"] - 1.0) < 1e-6
+
+    def test_right_angle_turn_pi_over_two_curvature(self):
+        # Three points = two vectors: east, then north. Single turn of π/2.
+        rows = [
+            {"t": 0.0, "event_type": "mouse_move", "x": 0.0, "y": 0.0},
+            {"t": 10.0, "event_type": "mouse_move", "x": 10.0, "y": 0.0},
+            {"t": 20.0, "event_type": "mouse_move", "x": 10.0, "y": 10.0},
+        ]
+        mm = pd.DataFrame(rows)
+        r = compute_trajectory_features(mm, window_duration_ms=30_000.0)
+        assert abs(r["mouse_curvature_mean"] - math.pi / 2) < 1e-6
+
+    def test_back_and_forth_detects_direction_changes(self):
+        # Move +x, -x, +x, -x → 3 direction flips on x axis
+        rows = [
+            {"t": float(i * 10), "event_type": "mouse_move", "x": x, "y": 0.0}
+            for i, x in enumerate([0.0, 10.0, 0.0, 10.0, 0.0])
+        ]
+        mm = pd.DataFrame(rows)
+        r = compute_trajectory_features(mm, window_duration_ms=1000.0)
+        # 3 sign-flips in 1 second
+        assert r["direction_changes_per_sec"] >= 3.0
+
+    def test_path_efficiency_low_when_self_intersecting(self):
+        # Travel out and back: large path, near-zero displacement
+        rows = [
+            {"t": float(i * 10), "event_type": "mouse_move", "x": x, "y": 0.0}
+            for i, x in enumerate([0.0, 10.0, 20.0, 30.0, 20.0, 10.0, 0.0])
+        ]
+        mm = pd.DataFrame(rows)
+        r = compute_trajectory_features(mm, window_duration_ms=30_000.0)
+        assert r["path_efficiency"] < 0.1
+
+
+# ---------------------------------------------------------------------------
+# TestComputeReactionFeatures  (Phase 1)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeReactionFeatures:
+    def test_empty_window_all_nan(self):
+        empty = pd.DataFrame(columns=["t", "event_type", "x", "y", "pressed"])
+        r = compute_reaction_features(empty)
+        assert math.isnan(r["click_reaction_mean"])
+        assert math.isnan(r["inter_click_movement"])
+
+    def test_no_clicks_returns_nan(self):
+        window = make_window_df(mm=make_mm(n=5))
+        r = compute_reaction_features(window)
+        assert math.isnan(r["click_reaction_mean"])
+        assert math.isnan(r["inter_click_movement"])
+
+    def test_click_reaction_matches_gap(self):
+        # mouse_move at t=100, click at t=250 → reaction = 150 ms
+        rows = [
+            {"t": 100.0, "event_type": "mouse_move", "x": 5, "y": 5, "pressed": None},
+            {"t": 250.0, "event_type": "mouse_click", "x": 5, "y": 5, "pressed": True},
+        ]
+        window = pd.DataFrame(rows)
+        r = compute_reaction_features(window)
+        assert abs(r["click_reaction_mean"] - 150.0) < 1e-6
+
+    def test_inter_click_movement_euclidean(self):
+        rows = [
+            {
+                "t": 100.0,
+                "event_type": "mouse_click",
+                "x": 0.0,
+                "y": 0.0,
+                "pressed": True,
+            },
+            {
+                "t": 200.0,
+                "event_type": "mouse_click",
+                "x": 3.0,
+                "y": 4.0,
+                "pressed": True,
+            },
+            {
+                "t": 300.0,
+                "event_type": "mouse_click",
+                "x": 0.0,
+                "y": 0.0,
+                "pressed": True,
+            },
+        ]
+        window = pd.DataFrame(rows)
+        r = compute_reaction_features(window)
+        # Mean of [5.0, 5.0]
+        assert abs(r["inter_click_movement"] - 5.0) < 1e-6
+
+    def test_ignores_click_releases(self):
+        rows = [
+            {"t": 100.0, "event_type": "mouse_move", "x": 0, "y": 0, "pressed": None},
+            {"t": 150.0, "event_type": "mouse_click", "x": 0, "y": 0, "pressed": True},
+            {"t": 200.0, "event_type": "mouse_click", "x": 0, "y": 0, "pressed": False},
+        ]
+        window = pd.DataFrame(rows)
+        r = compute_reaction_features(window)
+        # Only one press → no inter-click movement
+        assert math.isnan(r["inter_click_movement"])
+
+
+# ---------------------------------------------------------------------------
+# TestComputeKeystrokePeriodicity  (Phase 1)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeKeystrokePeriodicity:
+    def test_too_few_presses_returns_nan(self):
+        for n in (0, 1, 2):
+            kp = pd.DataFrame(
+                {"t": list(range(n)), "event_type": "key_press", "key": "w"}
+            )
+            assert math.isnan(
+                compute_keystroke_periodicity(kp)["keystroke_periodicity"]
+            )
+
+    def test_perfectly_periodic_cv_near_zero(self):
+        # Press every 200 ms exactly → CV = 0
+        kp = pd.DataFrame(
+            {"t": [200.0 * i for i in range(10)], "event_type": "key_press", "key": "w"}
+        )
+        r = compute_keystroke_periodicity(kp)
+        assert r["keystroke_periodicity"] < 1e-6
+
+    def test_irregular_presses_high_cv(self):
+        kp = pd.DataFrame(
+            {
+                "t": [0.0, 100.0, 350.0, 360.0, 800.0, 1200.0],
+                "event_type": "key_press",
+                "key": "w",
+            }
+        )
+        r = compute_keystroke_periodicity(kp)
+        assert r["keystroke_periodicity"] > 0.3
 
 
 # ---------------------------------------------------------------------------

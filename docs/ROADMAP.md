@@ -17,7 +17,7 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 
 | Phase | Goal | Status |
 |---|---|---|
-| 1. [Trajectory & temporal features](#phase-1--trajectory--temporal-features) | 7 new anti-cheat-relevant features | ⬜ Not started |
+| 1. [Trajectory & temporal features](#phase-1--trajectory--temporal-features) | 7 new anti-cheat-relevant features | ✅ Done |
 | 2. [LSTM autoencoder](#phase-2--lstm-autoencoder-for-anomaly-detection) | Deep-learning sequence model | ⬜ Not started |
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
 | 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Live inference dashboard | ⬜ Not started |
@@ -32,19 +32,24 @@ Legend: ⬜ Not started · 🚧 In progress · ✅ Done
 **Why:** Current 18 features are per-window aggregates of counts and timing. Anti-cheat detection in practice leans on **geometric trajectory features** (curvature, turn angles, flick patterns) and **reaction-time features**. These distinguish aimbots from humans.
 
 **New features (7):**
-- `mouse_curvature_mean`, `mouse_curvature_std` — average turn angle between consecutive 3-point mouse segments
-- `flick_count` — fast-acceleration mouse bursts (>3σ above session mean)
-- `flick_precision` — dispersion of post-flick positions (aimbots snap perfectly)
+- `mouse_curvature_mean`, `mouse_curvature_std` — turn-angle distribution between consecutive 3-point mouse segments
+- `path_efficiency` — Euclidean displacement / total-path ratio (smoother = more bot-like)
 - `direction_changes_per_sec` — velocity-vector sign flips per second
-- `path_efficiency` — Euclidean / total-path ratio (smoother = more bot-like)
-- `inter_click_movement` — mouse-movement distance between consecutive clicks
-- `keystroke_overlap_ratio` — fraction of time multiple keys held simultaneously
+- `click_reaction_mean` — mean gap (ms) between each click and the prior `mouse_move` (triggerbot signature)
+- `inter_click_movement` — mean distance moved between consecutive clicks
+- `keystroke_periodicity` — coefficient of variation of inter-key-press intervals (macro signature)
+
+> The draft list also included `flick_count`, `flick_precision`, `keystroke_overlap_ratio`. After the Phase-3 benchmark showed which event-level signals actually separate cheats from legit, those were swapped for the targeted set above.
 
 **Deliverables:**
-- [ ] 7 features added to `pipeline/features/run.py` and `FEATURE_COLS`
-- [ ] Tests in `tests/test_features.py`
-- [ ] `notebooks/08_trajectory_features.ipynb` — derivation, visualization, discrimination analysis
-- [ ] `docs/FEATURES.md` — explanation of each feature's anti-cheat relevance
+- [x] 7 features added to `pipeline/features/run.py` and `FEATURE_COLS` (now 25 total)
+- [x] Unit tests in `tests/test_features.py` (17 new tests, all passing)
+- [x] Per-session aggregation added to `pipeline/adversarial/benchmark.py` (production-realistic evaluation)
+- [x] `notebooks/08_trajectory_features.ipynb` — derivation, discrimination plots, before/after AUC comparison
+- [x] `docs/FEATURES.md` — full feature catalogue with anti-cheat relevance
+- [x] Re-ran Phase 3 benchmark with new features + per-session aggregation
+
+**Key results:** triggerbot AUC **0.50 → 0.87** (OneClassSVM), macro AUC **0.55 → 0.68**. Aimbot remained at AUC 0.53 — the 150 ms snap signal is still buried in 30 s of mouse data, motivating the Phase 2 LSTM autoencoder operating directly on raw event sequences.
 
 ---
 

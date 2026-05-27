@@ -112,10 +112,10 @@ class TestVecToArray:
         arr = _vec_to_array(vec)
         assert (arr == 0.0).all()
 
-    def test_array_shape_is_1_by_18(self):
+    def test_array_shape_matches_feature_cols(self):
         vec = FeatureVector(session_id="s1")
         arr = _vec_to_array(vec)
-        assert arr.shape == (1, 18)
+        assert arr.shape == (1, len(FEATURE_COLS))
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ class TestHealthEndpoint:
         body = r.json()
         assert body["model_type"] == "lightgbm"
         assert body["trained"] is True
-        assert body["feature_count"] == 18
+        assert body["feature_count"] == len(FEATURE_COLS)
 
     def test_untrained_model_reports_not_trained(self):
         client = get_client(make_lgbm_artifact(trained=False))

@@ -194,12 +194,93 @@ def _benchmark_one_cheat(
     )
 
 
+def _session_scores(
+    detector,
+    legit_X: np.ndarray,
+    cheat_X: np.ndarray,
+    legit_sessions: np.ndarray,
+    cheat_sessions: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Aggregate per-window anomaly scores into per-session max scores.
+
+    Production anti-cheat flags whole sessions, not individual windows: cheats
+    are typically present in only a fraction of a session's windows, so the
+    max anomaly score across a session is what matters. Per-window evaluation
+    dilutes the signal with the many legit-looking windows inside cheat files.
+    """
+    legit_w = -detector.score_samples(legit_X)
+    cheat_w = -detector.score_samples(cheat_X)
+
+    # Aggregate: max score per session
+    legit_df = pd.DataFrame({"session": legit_sessions, "score": legit_w})
+    cheat_df = pd.DataFrame({"session": cheat_sessions, "score": cheat_w})
+    legit_max = legit_df.groupby("session")["score"].max().to_numpy()
+    cheat_max = cheat_df.groupby("session")["score"].max().to_numpy()
+
+    scores = np.concatenate([legit_max, cheat_max])
+    y_true = np.concatenate([np.zeros(len(legit_max)), np.ones(len(cheat_max))])
+    return y_true, scores
+
+
+def _benchmark_one_cheat_per_session(
+    name: str,
+    detector,
+    legit_X: np.ndarray,
+    cheat_X: np.ndarray,
+    legit_sessions: np.ndarray,
+    cheat_sessions: np.ndarray,
+    cheat_label: str,
+    fpr_threshold: float,
+) -> BenchmarkResult:
+    """Train detector on legit-only, score per-session, compute metrics."""
+    detector.fit(legit_X)
+    y_true, scores = _session_scores(
+        detector, legit_X, cheat_X, legit_sessions, cheat_sessions
+    )
+
+    n_legit = int((y_true == 0).sum())
+    n_cheat = int((y_true == 1).sum())
+
+    try:
+        roc = roc_auc_score(y_true, scores)
+    except ValueError:
+        roc = float("nan")
+    try:
+        pr = average_precision_score(y_true, scores)
+    except ValueError:
+        pr = float("nan")
+
+    legit_mask = y_true == 0
+    return BenchmarkResult(
+        detector=name,
+        cheat_label=cheat_label,
+        n_legit=n_legit,
+        n_cheat=n_cheat,
+        roc_auc=float(roc),
+        pr_auc=float(pr),
+        detection_rate_at_fpr=_detection_rate_at_fpr(y_true, scores, fpr_threshold),
+        fpr_threshold=fpr_threshold,
+        mean_score_legit=float(np.mean(scores[legit_mask])),
+        mean_score_cheat=float(np.mean(scores[~legit_mask])),
+    )
+
+
 def run_benchmark(
     features_df: pd.DataFrame,
     fpr_threshold: float = 0.05,
     detectors: dict | None = None,
+    aggregation: str = "session_max",
 ) -> pd.DataFrame:
-    """Train each detector on legit-only rows, score per cheat type."""
+    """Train each detector on legit-only rows, score per cheat type.
+
+    ``aggregation`` controls evaluation granularity:
+      - ``"session_max"`` (default): collapse a session's per-window scores to
+        their max, then evaluate per session. Matches production anti-cheat,
+        where whole sessions get flagged.
+      - ``"window"``: evaluate every window independently (the original
+        Phase-3 behaviour — useful for diagnostics but dilutes cheat signal
+        because most windows in a cheat-labelled file contain no cheat events).
+    """
     if detectors is None:
         detectors = _build_detectors()
 
@@ -209,6 +290,7 @@ def run_benchmark(
 
     legit_mask = features_df["cheat_label"].eq(CHEAT_LEGIT).to_numpy()
     legit_X = X_scaled[legit_mask]
+    legit_sessions = features_df.loc[legit_mask, "cheat_source_file"].to_numpy()
     if legit_X.shape[0] < 5:
         raise RuntimeError(
             "Not enough legit windows to train detectors "
@@ -222,26 +304,44 @@ def run_benchmark(
     rows: list[BenchmarkResult] = []
     for name, detector in detectors.items():
         for cheat_label in cheat_labels:
-            cheat_X = X_scaled[features_df["cheat_label"].eq(cheat_label).to_numpy()]
+            cheat_mask = features_df["cheat_label"].eq(cheat_label).to_numpy()
+            cheat_X = X_scaled[cheat_mask]
+            cheat_sessions = features_df.loc[cheat_mask, "cheat_source_file"].to_numpy()
             if cheat_X.shape[0] == 0:
                 continue
-            rows.append(
-                _benchmark_one_cheat(
-                    name, detector, legit_X, cheat_X, cheat_label, fpr_threshold
+            if aggregation == "session_max":
+                rows.append(
+                    _benchmark_one_cheat_per_session(
+                        name,
+                        detector,
+                        legit_X,
+                        cheat_X,
+                        legit_sessions,
+                        cheat_sessions,
+                        cheat_label,
+                        fpr_threshold,
+                    )
                 )
-            )
+            else:
+                rows.append(
+                    _benchmark_one_cheat(
+                        name, detector, legit_X, cheat_X, cheat_label, fpr_threshold
+                    )
+                )
 
-    out = pd.DataFrame([r.__dict__ for r in rows])
-    return out
+    return pd.DataFrame([r.__dict__ for r in rows])
 
 
 def compute_roc_curves(
-    features_df: pd.DataFrame, detectors: dict | None = None
+    features_df: pd.DataFrame,
+    detectors: dict | None = None,
+    aggregation: str = "session_max",
 ) -> dict[tuple[str, str], dict]:
     """Return raw ROC curves keyed by (detector, cheat_label).
 
     Each value is a dict with ``fpr``, ``tpr``, ``thresholds``, ``auc`` —
-    suitable for plotting a curve grid in the notebook.
+    suitable for plotting a curve grid in the notebook. See ``run_benchmark``
+    for the ``aggregation`` parameter.
     """
     if detectors is None:
         detectors = _build_detectors()
@@ -252,21 +352,28 @@ def compute_roc_curves(
 
     legit_mask = features_df["cheat_label"].eq(CHEAT_LEGIT).to_numpy()
     legit_X = X_scaled[legit_mask]
+    legit_sessions = features_df.loc[legit_mask, "cheat_source_file"].to_numpy()
     cheat_labels = sorted(set(features_df["cheat_label"]) - {CHEAT_LEGIT})
 
     out: dict[tuple[str, str], dict] = {}
-    for name, detector in detectors.items():
-        # Re-fit per detector (LOF cannot be re-used across runs)
+    for name, _ in detectors.items():
         det = _build_detectors()[name]
         det.fit(legit_X)
-        legit_scores = -det.score_samples(legit_X)
         for cheat_label in cheat_labels:
-            cheat_X = X_scaled[features_df["cheat_label"].eq(cheat_label).to_numpy()]
+            cheat_mask = features_df["cheat_label"].eq(cheat_label).to_numpy()
+            cheat_X = X_scaled[cheat_mask]
+            cheat_sessions = features_df.loc[cheat_mask, "cheat_source_file"].to_numpy()
             if cheat_X.shape[0] == 0:
                 continue
-            cheat_scores = -det.score_samples(cheat_X)
-            scores = np.concatenate([legit_scores, cheat_scores])
-            y_true = np.concatenate([np.zeros(len(legit_X)), np.ones(len(cheat_X))])
+            if aggregation == "session_max":
+                y_true, scores = _session_scores(
+                    det, legit_X, cheat_X, legit_sessions, cheat_sessions
+                )
+            else:
+                legit_scores = -det.score_samples(legit_X)
+                cheat_scores = -det.score_samples(cheat_X)
+                scores = np.concatenate([legit_scores, cheat_scores])
+                y_true = np.concatenate([np.zeros(len(legit_X)), np.ones(len(cheat_X))])
             fpr, tpr, thresholds = roc_curve(y_true, scores)
             auc = roc_auc_score(y_true, scores)
             out[(name, cheat_label)] = dict(
@@ -276,9 +383,14 @@ def compute_roc_curves(
 
 
 def compute_pr_curves(
-    features_df: pd.DataFrame, detectors: dict | None = None
+    features_df: pd.DataFrame,
+    detectors: dict | None = None,
+    aggregation: str = "session_max",
 ) -> dict[tuple[str, str], dict]:
-    """Return raw precision-recall curves keyed by (detector, cheat_label)."""
+    """Return raw precision-recall curves keyed by (detector, cheat_label).
+
+    See ``run_benchmark`` for the ``aggregation`` parameter.
+    """
     if detectors is None:
         detectors = _build_detectors()
 
@@ -288,20 +400,28 @@ def compute_pr_curves(
 
     legit_mask = features_df["cheat_label"].eq(CHEAT_LEGIT).to_numpy()
     legit_X = X_scaled[legit_mask]
+    legit_sessions = features_df.loc[legit_mask, "cheat_source_file"].to_numpy()
     cheat_labels = sorted(set(features_df["cheat_label"]) - {CHEAT_LEGIT})
 
     out: dict[tuple[str, str], dict] = {}
     for name, _ in detectors.items():
         det = _build_detectors()[name]
         det.fit(legit_X)
-        legit_scores = -det.score_samples(legit_X)
         for cheat_label in cheat_labels:
-            cheat_X = X_scaled[features_df["cheat_label"].eq(cheat_label).to_numpy()]
+            cheat_mask = features_df["cheat_label"].eq(cheat_label).to_numpy()
+            cheat_X = X_scaled[cheat_mask]
+            cheat_sessions = features_df.loc[cheat_mask, "cheat_source_file"].to_numpy()
             if cheat_X.shape[0] == 0:
                 continue
-            cheat_scores = -det.score_samples(cheat_X)
-            scores = np.concatenate([legit_scores, cheat_scores])
-            y_true = np.concatenate([np.zeros(len(legit_X)), np.ones(len(cheat_X))])
+            if aggregation == "session_max":
+                y_true, scores = _session_scores(
+                    det, legit_X, cheat_X, legit_sessions, cheat_sessions
+                )
+            else:
+                legit_scores = -det.score_samples(legit_X)
+                cheat_scores = -det.score_samples(cheat_X)
+                scores = np.concatenate([legit_scores, cheat_scores])
+                y_true = np.concatenate([np.zeros(len(legit_X)), np.ones(len(cheat_X))])
             precision, recall, thresholds = precision_recall_curve(y_true, scores)
             ap = average_precision_score(y_true, scores)
             out[(name, cheat_label)] = dict(
