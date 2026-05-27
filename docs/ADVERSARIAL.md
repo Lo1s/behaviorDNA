@@ -125,9 +125,10 @@ Phase 1 added 7 trajectory and timing features (see [FEATURES.md](FEATURES.md)) 
 | Phase | What it adds | Closes which gap | Status |
 |---|---|---|---|
 | Phase 1 — Trajectory & temporal features | `mouse_curvature_*`, `path_efficiency`, `direction_changes_per_sec`, `click_reaction_mean`, `inter_click_movement`, `keystroke_periodicity` + per-session aggregation | Magnitude-only features → geometric features; per-window evaluation → per-session evaluation | ✅ done — triggerbot 0.87, macro 0.68 |
-| Phase 2 — LSTM autoencoder | Sequence model trained directly on raw events | Window aggregation entirely | ⬜ next |
+| Phase 2 — LSTM autoencoder | Sequence model on raw events, chunk-level scoring | Aimbot detection (window aggregation can't capture the 150 ms snap) | ✅ done — aimbot chunk AUC 0.78, triggerbot chunk AUC 0.96 |
+| Phase 4 — Bayesian session aggregator | Combine LSTM-AE + classical detectors into one session-level risk score | Single-detector session aggregation diluting the cheat signal | ⬜ next |
 
-Phase 1 lit up triggerbot and macro detection. Phase 2 will target the aimbot signal that's too brief to survive any window aggregation.
+Phase 2 added the LSTM autoencoder (see [docs/LSTM_AE.md](LSTM_AE.md)). At the **chunk level** it reaches AUC 0.78 on aimbot, 0.96 on triggerbot — the model clearly learns to flag short cheat segments. At the **session level**, however, single-detector aggregation underperforms; the cheat signal exists in a handful of chunks but a percentile aggregator across hundreds of chunks dilutes it. The combination of chunk-level LSTM-AE + window-level classical detectors via Phase 4's Bayesian aggregator is the path to robust session-level decisions.
 
 ---
 

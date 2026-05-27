@@ -81,6 +81,8 @@ data/splits/
 
 5. **Model selection is config-driven.** `pipeline/training/run.py` reads `model.type` and `model.task` from `configs/training.yaml`. Identification: lightgbm/random_forest/xgboost/svc. Anomaly: isolation_forest/lof/one_class_svm. ONNX export only happens for sklearn-compatible classifiers.
 
+5b. **LSTM autoencoder lives outside the sklearn dispatch.** `pipeline/models/lstm_ae.py` is a PyTorch model trained on raw event sequences (Phase 2). It's invoked via `pipeline/adversarial/benchmark.py:run_lstm_ae_benchmark` for synthetic-cheat evaluation. The DVC pipeline does NOT currently dispatch to it (deferred to a future Phase 2.1 — the chunk-level benchmark already proves the model). GPU is auto-detected; the code runs on CUDA when available (`torch.cuda.is_available()`) and falls back to CPU silently. See `docs/LSTM_AE.md`.
+
 6. **Optional MLflow.** Training and feature stages log to DagsHub's hosted MLflow if `MLFLOW_TRACKING_USERNAME` and `MLFLOW_TRACKING_PASSWORD` are in `.env`. Missing credentials degrade silently — the pipeline still produces all artifacts. Never hardcode credentials.
 
 7. **Session JSON schema is forward-compatible.** Recordings carry extra metadata fields (`activity`, `polling_rate`, `resolution`, `grip_style`, `dominant_hand`, `warmup`) that are read via `data.get()` in the ingestion pipeline. Old session files without these fields still ingest successfully.

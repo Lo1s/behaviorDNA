@@ -19,7 +19,7 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 |---|---|---|
 | 1. [Trajectory & temporal features](#phase-1--trajectory--temporal-features) | 7 new anti-cheat-relevant features | ✅ Done |
 | 1.5. [Feature expansion (optional)](#phase-15--feature-expansion-optional) | Backlog of further feature ideas, revisited after Phase 5 | 📝 Backlog |
-| 2. [LSTM autoencoder](#phase-2--lstm-autoencoder-for-anomaly-detection) | Deep-learning sequence model | 🚧 In progress |
+| 2. [LSTM autoencoder](#phase-2--lstm-autoencoder-for-anomaly-detection) | Deep-learning sequence model | ✅ Done |
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
 | 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Live inference dashboard | ⬜ Not started |
 | 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ⬜ Not started |
@@ -80,12 +80,24 @@ Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
 **Notebook 09 is a thorough tutorial** with diagrams and visualizations covering: what is an autoencoder, why LSTM, building the sequence dataset, PyTorch dataloader & padding, model architecture, training loop, watching it learn, latent-space exploration, anomaly scoring, threshold selection, ablation.
 
 **Deliverables:**
-- [ ] `pipeline/sequences/dataset.py` + `preprocessing.py`
-- [ ] `pipeline/models/lstm_ae.py`
-- [ ] Integration into `pipeline/training/run.py` (selectable via `configs/training.yaml`)
-- [ ] `notebooks/09_lstm_autoencoder.ipynb` — 11-step tutorial
-- [ ] `docs/LSTM_AE.md` — architecture diagram + write-up
-- [ ] MLflow logging of reconstruction-error curves
+- [x] `pipeline/sequences/dataset.py` + `preprocessing.py` — 8-D event tensors, chunking, train-fold normaliser
+- [x] `pipeline/models/lstm_ae.py` — bidirectional encoder + bottleneck + decoder; ~196k params; GPU auto-select
+- [x] `pipeline/adversarial/benchmark.py` — LSTM-AE benchmark with **chunk-level + session-level AUC**
+- [x] `notebooks/09_lstm_autoencoder.ipynb` — 11-step tutorial with diagrams, training curves, latent UMAP, score histograms
+- [x] `docs/LSTM_AE.md` — architecture + benchmark write-up + WSL+CUDA notes
+- [x] 38 new unit tests (`tests/test_sequences.py` + `tests/test_lstm_ae.py`)
+- [ ] Integration into `pipeline/training/run.py` (deferred — current benchmark path proves the model; full DVC integration is Phase 2.1)
+- [ ] MLflow logging of reconstruction-error curves (deferred — same reason)
+
+**Key results vs Phase 1 baseline:**
+
+| Cheat | Phase 1 best AUC | LSTM-AE chunk AUC | LSTM-AE session AUC |
+|---|---|---|---|
+| Aimbot | 0.53 | **0.78** | ~0.50 |
+| Macro | 0.68 | 0.70 | ~0.58 |
+| Triggerbot | 0.87 | **0.96** | ~0.51 |
+
+Chunk-level AUC ≥ 0.75 success criterion met for aimbot (0.78). Session-level AUC is intentionally reported alongside chunk-level to expose the **single-detector aggregation gap** — most synthetic-file chunks are clean even when the file is cheat-labelled, so single-percentile session aggregation underperforms multi-detector aggregation. This motivates [Phase 4 (Bayesian multi-detector aggregator)](#phase-4--session-level-risk-aggregation--streaming-api).
 
 ---
 
