@@ -387,8 +387,7 @@ with tab5:
     import time
 
     st.subheader("📡 Live cheat-risk timeline")
-    st.markdown(
-        """
+    st.markdown("""
         Replays a recorded session through the same streaming pipeline an
         always-on anti-cheat would use (see [`docs/STREAMING.md`](../docs/STREAMING.md)).
         Optionally injects a synthetic cheat partway through so the risk score
@@ -397,8 +396,7 @@ with tab5:
         > **Mock-data caveat:** all current `data/raw/*.json` recordings are mouse-on-desktop
         > mock data, not real gameplay. The streaming pipeline runs correctly; the
         > *absolute* risk magnitudes will tighten once the GTA recordings land.
-        """
-    )
+        """)
 
     RAW_DIR = ROOT / "data" / "raw"
     session_files = sorted(RAW_DIR.glob("*.json"))
