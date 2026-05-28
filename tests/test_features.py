@@ -10,12 +10,14 @@ import pandas as pd
 
 from pipeline.features.run import (
     FEATURE_COLS,
+    REFERENCE_POLLING_RATE,
     compute_keyboard_patterns,
     compute_keystroke_periodicity,
     compute_mouse_kinematics,
     compute_reaction_features,
     compute_session_aggregates,
     compute_trajectory_features,
+    polling_rate_norm,
     process_session_windows,
 )
 
@@ -449,3 +451,80 @@ class TestProcessSessionWindows:
         for w in windows:
             for col in FEATURE_COLS:
                 assert col in w, f"Missing feature key: {col}"
+
+
+# ---------------------------------------------------------------------------
+# TestPollingRateNormalization  (pre-recording readiness)
+# ---------------------------------------------------------------------------
+
+
+def _mouse_stream(rate_hz: int, duration_ms: float = 30_000.0) -> pd.DataFrame:
+    """Dense mouse_move stream at a given polling rate over one 30s window."""
+    dt = 1000.0 / rate_hz
+    n = int(duration_ms / dt)
+    rows = [
+        {
+            "t": i * dt,
+            "event_type": "mouse_move",
+            "x": 100 + (i % 50),
+            "y": 200 + (i % 30),
+            "dx": 1 if i % 2 == 0 else -1,
+            "dy": 1 if i % 3 == 0 else -1,
+            "pressed": None,
+            "key": None,
+        }
+        for i in range(n)
+    ]
+    return pd.DataFrame(rows)
+
+
+class TestPollingRateNormalization:
+    def test_polling_rate_norm_factor(self):
+        assert polling_rate_norm(1000) == 1.0
+        assert polling_rate_norm(125) == REFERENCE_POLLING_RATE / 125
+        assert abs(polling_rate_norm(500) - 2.0) < 1e-9
+
+    def test_polling_rate_norm_missing_or_invalid_is_identity(self):
+        assert polling_rate_norm(None) == 1.0
+        assert polling_rate_norm(0) == 1.0
+        assert polling_rate_norm(-1) == 1.0
+        assert polling_rate_norm("garbage") == 1.0
+
+    def test_event_rate_diverges_without_normalization(self):
+        """Sanity: identical behaviour at 1000 vs 125 Hz gives ~8x different raw event_rate."""
+        hi = process_session_windows(
+            _mouse_stream(1000), norm_factor=1.0, rate_norm=1.0
+        )
+        lo = process_session_windows(_mouse_stream(125), norm_factor=1.0, rate_norm=1.0)
+        ratio = hi[0]["event_rate"] / lo[0]["event_rate"]
+        assert 6.0 < ratio < 10.0, f"expected ~8x, got {ratio:.1f}x"
+
+    def test_event_rate_matches_after_normalization(self):
+        """With polling-rate normalization, the same behaviour gives matching event_rate."""
+        hi = process_session_windows(
+            _mouse_stream(1000), norm_factor=1.0, rate_norm=polling_rate_norm(1000)
+        )
+        lo = process_session_windows(
+            _mouse_stream(125), norm_factor=1.0, rate_norm=polling_rate_norm(125)
+        )
+        hi_rate = hi[0]["event_rate"]
+        lo_rate = lo[0]["event_rate"]
+        # Within 10% after normalization (vs ~8x off without it)
+        assert (
+            abs(hi_rate - lo_rate) / hi_rate < 0.10
+        ), f"normalized event_rate should match: {hi_rate:.1f} vs {lo_rate:.1f}"
+
+    def test_direction_changes_normalized(self):
+        """direction_changes_per_sec should also be brought to a common scale."""
+        hi = process_session_windows(
+            _mouse_stream(1000), norm_factor=1.0, rate_norm=polling_rate_norm(1000)
+        )
+        lo = process_session_windows(
+            _mouse_stream(125), norm_factor=1.0, rate_norm=polling_rate_norm(125)
+        )
+        hi_dc = hi[0]["direction_changes_per_sec"]
+        lo_dc = lo[0]["direction_changes_per_sec"]
+        # Normalized values land in the same ballpark (within 2x; the flip
+        # pattern isn't perfectly polling-invariant but normalization closes
+        # most of the 8x hardware gap).
+        assert 0.5 < (hi_dc / lo_dc) < 2.0, f"{hi_dc:.1f} vs {lo_dc:.1f}"

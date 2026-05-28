@@ -47,6 +47,32 @@ FEATURES_OUT = PROCESSED_DIR / "features.parquet"
 WINDOW_MS = 30_000  # 30 seconds
 WASD_KEYS = {"w", "a", "s", "d", "Key.up", "Key.down", "Key.left", "Key.right"}
 
+# Mouse polling rate (Hz) that rate-based features are normalised to. A 125 Hz
+# mouse produces ~8× fewer mouse events/sec than a 1000 Hz mouse for identical
+# behaviour, so event_rate / mouse_key_ratio / direction_changes_per_sec are
+# scaled by (REFERENCE_POLLING_RATE / polling_rate) to be comparable across
+# hardware. See docs/FEATURES.md for which features are affected and why.
+REFERENCE_POLLING_RATE = 1000.0
+
+
+def polling_rate_norm(polling_rate: float | int | None) -> float:
+    """Scale factor that brings rate-based features to REFERENCE_POLLING_RATE.
+
+    Returns 1.0 (no-op) when polling_rate is missing or non-positive — which is
+    what older mock recordings without the field get, preserving backwards
+    compatibility.
+    """
+    if polling_rate is None:
+        return 1.0
+    try:
+        pr = float(polling_rate)
+    except (TypeError, ValueError):
+        return 1.0
+    if pr <= 0:
+        return 1.0
+    return REFERENCE_POLLING_RATE / pr
+
+
 FEATURE_COLS = [
     # Mouse kinematics
     "speed_mean",
@@ -220,15 +246,21 @@ def compute_session_aggregates(
     window: pd.DataFrame,
     w_start: float,
     window_duration_ms: float,
+    rate_norm: float = 1.0,
 ) -> dict:
-    """Compute event rate, mouse/key ratio, active time %, and scroll stats."""
+    """Compute event rate, mouse/key ratio, active time %, and scroll stats.
+
+    ``rate_norm`` scales the mouse-polling-rate-proportional features
+    (``event_rate``, ``mouse_key_ratio``) to a common reference rate so
+    different hardware is comparable. Defaults to 1.0 (no normalisation).
+    """
     n_total = len(window)
-    event_rate = n_total / (window_duration_ms / 1000.0)
+    event_rate = n_total / (window_duration_ms / 1000.0) * rate_norm
 
     et = window["event_type"]
     n_mouse = et.str.startswith("mouse").sum()
     n_key = et.isin(["key_press", "key_release"]).sum()
-    mouse_key_ratio = n_mouse / (n_key + 1e-9)
+    mouse_key_ratio = n_mouse / (n_key + 1e-9) * rate_norm
 
     # Active time: fraction of 1-second buckets that contain at least one event
     n_buckets = max(1, round(window_duration_ms / 1000))
@@ -252,8 +284,15 @@ def compute_session_aggregates(
     }
 
 
-def compute_trajectory_features(mm: pd.DataFrame, window_duration_ms: float) -> dict:
+def compute_trajectory_features(
+    mm: pd.DataFrame, window_duration_ms: float, rate_norm: float = 1.0
+) -> dict:
     """Mouse trajectory geometry: curvature, path efficiency, direction changes.
+
+    ``rate_norm`` scales ``direction_changes_per_sec`` (which grows with the
+    mouse polling rate — more samples capture more sign flips) to a common
+    reference rate. Curvature and path-efficiency are scale-invariant ratios
+    and are NOT scaled. Defaults to 1.0 (no normalisation).
 
     These features are designed to survive 30-second aggregation while still
     carrying the geometric signal that distinguishes humans from aimbots:
@@ -313,7 +352,7 @@ def compute_trajectory_features(mm: pd.DataFrame, window_duration_ms: float) -> 
         flips_x = int(np.sum((sx[:-1] != 0) & (sx[1:] != 0) & (sx[:-1] != sx[1:])))
         flips_y = int(np.sum((sy[:-1] != 0) & (sy[1:] != 0) & (sy[:-1] != sy[1:])))
         result["direction_changes_per_sec"] = float(
-            (flips_x + flips_y) / (window_duration_ms / 1000.0)
+            (flips_x + flips_y) / (window_duration_ms / 1000.0) * rate_norm
         )
 
     return result
@@ -393,8 +432,14 @@ def compute_keystroke_periodicity(kp: pd.DataFrame) -> dict:
 def process_session_windows(
     session_events: pd.DataFrame,
     norm_factor: float,
+    rate_norm: float = 1.0,
 ) -> list[dict]:
-    """Slice session events into 30s windows and extract features for each."""
+    """Slice session events into 30s windows and extract features for each.
+
+    ``rate_norm`` is the polling-rate normalisation factor (see
+    ``polling_rate_norm``); it scales the rate-based features inside the
+    per-window helpers. Defaults to 1.0 (no normalisation).
+    """
     if session_events.empty:
         return []
 
@@ -425,11 +470,13 @@ def process_session_windows(
 
         features = {"window_idx": window_idx}
         features.update(compute_mouse_kinematics(mm, mc, norm_factor))
-        features.update(compute_trajectory_features(mm, actual_ms))
+        features.update(compute_trajectory_features(mm, actual_ms, rate_norm))
         features.update(compute_keyboard_patterns(kp, kr, actual_ms))
         features.update(compute_reaction_features(window))
         features.update(compute_keystroke_periodicity(kp))
-        features.update(compute_session_aggregates(window, w_start, actual_ms))
+        features.update(
+            compute_session_aggregates(window, w_start, actual_ms, rate_norm)
+        )
         windows.append(features)
 
         window_idx += 1
@@ -460,9 +507,10 @@ def run() -> None:
     for _, sess in sessions.iterrows():
         sid = sess["session_id"]
         norm_factor = (float(sess["sensitivity"]) * float(sess["dpi"])) / 800.0
+        rate_norm = polling_rate_norm(sess.get("polling_rate"))
         sess_events = events[events["session_id"] == sid].sort_values("t")
 
-        windows = process_session_windows(sess_events, norm_factor)
+        windows = process_session_windows(sess_events, norm_factor, rate_norm)
 
         for w in windows:
             row = {

@@ -30,8 +30,8 @@ stages:
       size: 9689
     - path: pipeline/features/run.py
       hash: md5
-      md5: 1cc6d09e98465d0c164936f2b34b191e
-      size: 16989
+      md5: 03eda158d50a80896f5bb963cc40e6ef
+      size: 18917
     outs:
     - path: data/processed/features.parquet
       hash: md5

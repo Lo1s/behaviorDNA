@@ -115,6 +115,18 @@ These exist mainly to characterise the activity context of a window. They are in
 
 **NaN handling.** Each helper returns `float('nan')` for degenerate windows (e.g. `click_interval_*` when the window has 0–1 clicks). Downstream stages call `.fillna(0.0)` to get a clean feature matrix. Models are tree-based or kernel-based and tolerate this.
 
-**DPI normalisation, not feature-level standardisation.** `speed_*` and `accel_*` are divided by `sensitivity × dpi / 800.0` *during* feature computation, so different hardware setups are comparable across sessions in absolute terms. Geometric features (`mouse_curvature_*`, `path_efficiency`, `direction_changes_per_sec`) are inherently scale-invariant and need no normalisation.
+**DPI normalisation, not feature-level standardisation.** `speed_*` and `accel_*` are divided by `sensitivity × dpi / 800.0` *during* feature computation, so different hardware setups are comparable across sessions in absolute terms. Geometric ratios (`mouse_curvature_*`, `path_efficiency`) are inherently scale-invariant and need no normalisation.
+
+**Polling-rate normalisation.** Three features scale ~linearly with the mouse polling rate, because a 1000 Hz mouse emits ~8× more `mouse_move` events per second than a 125 Hz mouse for *identical* behaviour:
+
+| Feature | Why it scales with polling rate |
+|---|---|
+| `event_rate` | dominated by `mouse_move` count, which is ~polling_rate |
+| `mouse_key_ratio` | numerator (mouse events) scales with polling rate; denominator (keys) doesn't |
+| `direction_changes_per_sec` | more samples capture more velocity sign-flips |
+
+These are multiplied by `rate_norm = REFERENCE_POLLING_RATE / polling_rate` (reference = 1000 Hz) in `compute_session_aggregates` / `compute_trajectory_features`, so two recordings of the same behaviour on different hardware land at the same value. When `polling_rate` is missing or non-positive, `rate_norm = 1.0` (no-op, backwards-compatible). The same `rate_norm` is applied consistently in the training pipeline (`pipeline/features/run.py:run`), the adversarial benchmark, and the streaming engine so train/inference features don't diverge.
+
+**Left unnormalised on purpose:** `speed_*` / `accel_*` are `dist/dt` ratios where higher polling shrinks both numerator and denominator → approximately rate-invariant already (and DPI-normalised). Keyboard features (`burst_rate`, `iki_*`, `hold_*`, `keystroke_periodicity`, `wasd_rhythm`) are driven by key events, not the mouse polling clock. `jitter` (path/displacement) is *mildly* polling-sensitive but not linearly — perfectly cancelling it would need event-stream resampling, which is out of scope; the linear scaling above handles the dominant effect. The drift-detection tool ([docs/MONITORING.md](MONITORING.md)) is the way to verify, on real mixed-hardware data, that normalisation actually cancels the gap.
 
 **Window size = 30 s, non-overlapping.** Hardcoded as `WINDOW_MS` in `pipeline/features/run.py`. Larger windows give more stable feature estimates but dilute brief cheat signals further; smaller windows go the other way. 30 s was chosen empirically — see [notebooks/02_features.ipynb](../notebooks/02_features.ipynb).

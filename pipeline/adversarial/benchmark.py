@@ -40,7 +40,11 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import OneClassSVM
 
 from pipeline.adversarial.bot_generator import CHEAT_LEGIT
-from pipeline.features.run import FEATURE_COLS, process_session_windows
+from pipeline.features.run import (
+    FEATURE_COLS,
+    polling_rate_norm,
+    process_session_windows,
+)
 from pipeline.ingestion.run import parse_events, parse_session_metadata
 
 log = logging.getLogger(__name__)
@@ -70,8 +74,9 @@ def _features_from_synthetic_file(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
     norm_factor = (float(meta["sensitivity"]) * float(meta["dpi"])) / 800.0
+    rate_norm = polling_rate_norm(meta.get("polling_rate"))
     sess_events = events_df.sort_values("t")
-    windows = process_session_windows(sess_events, norm_factor)
+    windows = process_session_windows(sess_events, norm_factor, rate_norm)
 
     if not windows:
         return pd.DataFrame()

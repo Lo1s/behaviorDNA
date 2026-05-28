@@ -106,6 +106,7 @@ class SessionStreamState:
         lstm_ae_stats: dict | None = None,
         chunk_length: int = 64,
         norm_factor: float = 1.0,
+        rate_norm: float = 1.0,
         device: str = "auto",
     ) -> None:
         self.classical_detectors = classical_detectors
@@ -115,6 +116,10 @@ class SessionStreamState:
         self.lstm_ae_stats = lstm_ae_stats
         self.chunk_length = chunk_length
         self.norm_factor = norm_factor
+        # Polling-rate normalisation factor for the classical window features.
+        # Defaults to 1.0 (no-op); the live recorder will report its own rate
+        # in a future iteration so each connection can set this per-session.
+        self.rate_norm = rate_norm
         self.device = device
 
         # Per-session running state
@@ -212,7 +217,7 @@ class SessionStreamState:
                 }
             )
         df = pd.DataFrame(rows)
-        windows = process_session_windows(df, self.norm_factor)
+        windows = process_session_windows(df, self.norm_factor, self.rate_norm)
         if not windows:
             return
 
