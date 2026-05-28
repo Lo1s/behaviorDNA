@@ -23,9 +23,11 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
 | 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Bayesian multi-detector aggregator + WebSocket API + live dashboard | ✅ Done |
 | 4.1. [Live recorder + multi-user backlog](#phase-41--live-recorder--multi-user-backlog) | Phase 4 follow-ups (live recorder, WS auth, MLflow logging) | 📝 Backlog |
-| 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ⬜ Not started |
+| 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | 🚧 5c drift done; rest not started |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
+
+> **Pre-recording readiness (done):** ahead of the real GTA recordings, shipped data-independent infra — drift detection (5c), a recording QC gate (`scripts/validate_recordings.py`), polling-rate normalization, and dependency fixes. See the [Pre-recording readiness](#pre-recording-readiness-done-while-waiting-for-real-recordings) section and the Recording Arrival Runbook in [docs/MONITORING.md](MONITORING.md).
 
 ---
 
@@ -174,6 +176,22 @@ Follow-ups to Phase 4 that were intentionally **not** in scope this session. Mov
 
 ---
 
+## Pre-recording readiness (done while waiting for real recordings)
+
+Data-independent work shipped ahead of the real GTA recordings so their arrival is immediately productive:
+
+- [x] **Drift detection** (Phase 5c above) — `pipeline/monitoring/drift.py`. Doubles as the tool to quantify the mock→real shift.
+- [x] **Recording QC gate** — `scripts/validate_recordings.py`. Validates incoming JSONs (schema, event_count integrity, activity labels, polling-rate consistency, per-player counts) before `dvc repro`. Exit 1 on FAIL so it can gate ingestion.
+- [x] **Polling-rate normalization** — `event_rate`, `mouse_key_ratio`, `direction_changes_per_sec` scaled to a 1000 Hz reference so mixed-hardware recordings are comparable (see `docs/FEATURES.md`).
+- [x] **Dependency fixes** — `websockets` (replay WS client) + `shap` (staged for 5a) added to `requirements.txt`.
+- [x] **Recording Arrival Runbook** — step-by-step for when data lands, in `docs/MONITORING.md`.
+
+## Tooling backlog
+
+- **CI pre-ingestion hook** — wire `scripts/validate_recordings.py` into a gate: either a `dvc repro` dependency or a GitHub Action that fails the build when a recording batch has FAILs. Keeps bad data out of the pipeline automatically. (Surfaced during the QC-script work; not yet built.)
+
+---
+
 ## Phase 5 — Statistical Rigor & MLOps Polish
 
 **Why:** Tie everything together with scientific rigor and production-ready observability. Reads as "ready to ship" rather than "promising prototype."
@@ -190,10 +208,14 @@ Follow-ups to Phase 4 that were intentionally **not** in scope this session. Mov
 - [ ] Brier score + ECE
 - [ ] Isotonic / Platt scaling applied, before/after comparison
 
-**5c. Drift detection** — `pipeline/monitoring/drift.py` + `notebooks/14_drift.ipynb`
-- [ ] KS test on feature distributions (training set vs latest week)
-- [ ] PSI (Population Stability Index)
-- [ ] CLI: `python -m pipeline.monitoring.drift`
+**5c. Drift detection** — `pipeline/monitoring/drift.py` ✅ done (built early as pre-recording readiness)
+- [x] KS test on feature distributions (`ks_drift`)
+- [x] PSI (Population Stability Index) (`psi`) with standard 0.1/0.25 thresholds
+- [x] `compute_drift_report` per-feature KS+PSI table, sorted by PSI
+- [x] CLI: `python -m pipeline.monitoring.drift`
+- [x] `docs/MONITORING.md` — plain-English KS/PSI explanation + worked example + Recording Arrival Runbook
+- [x] `tests/test_drift.py` (13 tests)
+- [ ] `notebooks/14_drift.ipynb` — visual mock-vs-real drift walkthrough (deferred until real recordings land)
 
 **5d. Ablation study** — `notebooks/15_ablation.ipynb`
 - [ ] Remove each feature group, re-evaluate, heatmap marginal contribution
