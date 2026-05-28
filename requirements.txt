@@ -30,12 +30,16 @@ fastapi>=0.110
 uvicorn>=0.27
 pydantic>=2.0
 httpx>=0.27                # FastAPI TestClient runtime dep (starlette ≥ 0.36)
+websockets>=12.0          # /stream WebSocket client used by scripts/replay_session.py
 
 # --- Visualization ---
 matplotlib>=3.7
 seaborn>=0.13
 plotly>=5.18
 streamlit>=1.32
+
+# --- Explainability (Phase 5) ---
+shap>=0.44                # SHAP values for LightGBM + LSTM-AE explainability
 
 # --- External Datasets ---
 kaggle>=1.6
