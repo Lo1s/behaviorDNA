@@ -4,11 +4,17 @@ tests/test_ingestion.py
 Unit tests for pipeline/ingestion/run.py
 """
 
+import json
 from pathlib import Path
 
+import pandas as pd
+import pytest
+
+import pipeline.ingestion.run as ingest
 from pipeline.ingestion.run import (
     parse_events,
     parse_session_metadata,
+    run,
     validate_session,
 )
 
@@ -175,3 +181,80 @@ class TestParseEvents:
             "key_press",
             "key_release",
         }
+
+
+# ---------------------------------------------------------------------------
+# run() — the full ingestion stage
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ingest_dirs(tmp_path, monkeypatch):
+    """Point the ingestion module at temp raw/processed dirs."""
+    raw = tmp_path / "raw"
+    processed = tmp_path / "processed"
+    raw.mkdir()
+    monkeypatch.setattr(ingest, "RAW_DIR", raw)
+    monkeypatch.setattr(ingest, "PROCESSED_DIR", processed)
+    monkeypatch.setattr(ingest, "SESSIONS_OUT", processed / "sessions.parquet")
+    monkeypatch.setattr(ingest, "EVENTS_OUT", processed / "events.parquet")
+    return raw, processed
+
+
+def _write_session(raw_dir: Path, name: str, data: dict) -> None:
+    (raw_dir / name).write_text(json.dumps(data))
+
+
+class TestRunPipeline:
+    def test_writes_sessions_and_events_parquet(self, ingest_dirs):
+        raw, processed = ingest_dirs
+        _write_session(
+            raw, "a.json", make_session(session_id="aaaa1111", player="hydra")
+        )
+        _write_session(
+            raw, "b.json", make_session(session_id="bbbb2222", player="royik")
+        )
+
+        run()
+
+        sessions = pd.read_parquet(processed / "sessions.parquet")
+        events = pd.read_parquet(processed / "events.parquet")
+        assert len(sessions) == 2
+        assert set(sessions["player"]) == {"hydra", "royik"}
+        assert len(events) == 1000  # 500 events × 2 sessions
+        assert "event_type" in events.columns
+
+    def test_skips_invalid_sessions(self, ingest_dirs):
+        raw, processed = ingest_dirs
+        _write_session(raw, "good.json", make_session(session_id="good1111"))
+        # Invalid: too short → validation error → skipped
+        _write_session(
+            raw, "bad.json", make_session(session_id="bad22222", duration_ms=1_000.0)
+        )
+
+        run()
+
+        sessions = pd.read_parquet(processed / "sessions.parquet")
+        assert len(sessions) == 1
+        assert sessions.iloc[0]["session_id"] == "good1111"
+
+    def test_skips_corrupt_json(self, ingest_dirs):
+        raw, processed = ingest_dirs
+        _write_session(raw, "good.json", make_session(session_id="good1111"))
+        (raw / "broken.json").write_text("{not valid json")
+
+        run()
+
+        sessions = pd.read_parquet(processed / "sessions.parquet")
+        assert len(sessions) == 1
+
+    def test_empty_dir_exits(self, ingest_dirs):
+        # No JSON files → sys.exit(1)
+        with pytest.raises(SystemExit):
+            run()
+
+    def test_all_invalid_exits(self, ingest_dirs):
+        raw, _ = ingest_dirs
+        _write_session(raw, "bad.json", make_session(duration_ms=1_000.0))  # too short
+        with pytest.raises(SystemExit):
+            run()

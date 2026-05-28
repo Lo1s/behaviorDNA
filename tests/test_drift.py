@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
+from pipeline.features.run import FEATURE_COLS
 from pipeline.monitoring.drift import (
     PSI_SIGNIFICANT,
     compute_drift_report,
     ks_drift,
     psi,
+    run,
 )
 
 # ---------------------------------------------------------------------------
@@ -152,3 +155,58 @@ class TestDriftReport:
         ref, cur = self._frames()
         report = compute_drift_report(ref, cur, ["stable", "nonexistent"])
         assert set(report["feature"]) == {"stable"}
+
+
+# ---------------------------------------------------------------------------
+# run() CLI
+# ---------------------------------------------------------------------------
+
+
+class TestDriftCLI:
+    def _write_features(self, path, n, shift, seed):
+        rng = np.random.default_rng(seed)
+        data = {col: rng.normal(shift, 1, n) for col in FEATURE_COLS}
+        pd.DataFrame(data).to_parquet(path, index=False)
+
+    def test_run_writes_report_csv(self, tmp_path, monkeypatch):
+        ref = tmp_path / "ref.parquet"
+        cur = tmp_path / "cur.parquet"
+        out = tmp_path / "report.csv"
+        self._write_features(ref, 300, shift=0.0, seed=0)
+        self._write_features(cur, 300, shift=3.0, seed=1)  # shifted → drift
+
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "drift",
+                "--reference",
+                str(ref),
+                "--current",
+                str(cur),
+                "--out",
+                str(out),
+            ],
+        )
+        run()
+
+        assert out.exists()
+        report = pd.read_csv(out)
+        assert "psi" in report.columns
+        # Strong shift on every feature → at least one significant
+        assert (report["psi_severity"] == "significant").any()
+
+    def test_run_missing_reference_exits(self, tmp_path, monkeypatch):
+        cur = tmp_path / "cur.parquet"
+        self._write_features(cur, 50, shift=0.0, seed=0)
+        monkeypatch.setattr(
+            "sys.argv",
+            [
+                "drift",
+                "--reference",
+                str(tmp_path / "nope.parquet"),
+                "--current",
+                str(cur),
+            ],
+        )
+        with pytest.raises(SystemExit):
+            run()
