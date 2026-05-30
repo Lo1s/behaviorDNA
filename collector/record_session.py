@@ -229,7 +229,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--resolution",
         required=True,
-        choices=["1920x1080", "2560x1440", "3840x2160", "other"],
+        choices=["1920x1080", "2560x1440", "3440x1440", "3840x2160", "other"],
         help="Screen resolution (Windows Settings → Display → Display resolution)",
     )
     parser.add_argument(
