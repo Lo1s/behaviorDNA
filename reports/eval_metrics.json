@@ -1,10 +1,10 @@
 {
   "evaluated": true,
   "model_type": "lightgbm",
-  "test_accuracy": 0.8235294117647058,
-  "precision_weighted": 0.6782006920415224,
-  "recall_weighted": 0.8235294117647058,
-  "f1_weighted": 0.7438330170777988,
-  "n_test_windows": 17,
-  "n_classes": 4
+  "test_accuracy": 0.8529411764705882,
+  "precision_weighted": 0.885972850678733,
+  "recall_weighted": 0.8529411764705882,
+  "f1_weighted": 0.8618319876970396,
+  "n_test_windows": 34,
+  "n_classes": 3
 }

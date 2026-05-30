@@ -3,9 +3,13 @@ pipeline/features/split.py
 ===========================
 Stage 3 — Split: features.parquet → stratified train / val / test parquets.
 
-Groups windows by session_id so all windows from one session stay in one fold,
-preventing leakage. Players with fewer than min_sessions_per_player sessions are
-excluded before splitting.
+Splits are **player-stratified at the session level**: every retained player's
+sessions are partitioned into train/val/test independently, so all windows from
+one session stay in one fold (no leakage) AND every player is represented in
+every non-empty fold. This matters most with few sessions — a purely random
+session split can drop a whole identity out of the test set, making
+identification metrics meaningless. Players with fewer than
+min_sessions_per_player sessions are excluded before splitting.
 
 With very few sessions (e.g. current single-session data) all players may fall below
 the threshold — in that case empty but schema-valid parquets are written and a
@@ -27,9 +31,9 @@ import logging
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import yaml
-from sklearn.model_selection import GroupShuffleSplit
 
 log = logging.getLogger(__name__)
 
@@ -48,8 +52,10 @@ def split(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Return (train_df, val_df, test_df) with no session_id crossing splits.
 
-    All windows from a given session_id stay in a single fold. Players with
-    fewer than min_sessions_per_player sessions are excluded first.
+    All windows from a given session_id stay in a single fold, and each retained
+    player's sessions are split independently so every player appears in every
+    non-empty fold. Players with fewer than min_sessions_per_player sessions are
+    excluded first.
     """
     # Filter under-represented players
     session_player = features_df.drop_duplicates("session_id").set_index("session_id")[
@@ -78,31 +84,38 @@ def split(
         )
         return empty, empty, empty
 
-    groups = df["session_id"].values
+    # Per-player whole-session holdout: for each player, shuffle their sessions
+    # deterministically and peel off test, then val, leaving the rest for train.
+    # This guarantees every retained player is present in each non-empty fold.
+    rng = np.random.default_rng(random_seed)
+    test_sids: list = []
+    val_sids: list = []
+    train_sids: list = []
 
-    # Stage 1: carve out test set
-    gss_test = GroupShuffleSplit(
-        n_splits=1, test_size=test_size, random_state=random_seed
-    )
-    train_val_idx, test_idx = next(gss_test.split(df, groups=groups))
-    df_train_val = df.iloc[train_val_idx].reset_index(drop=True)
-    df_test = df.iloc[test_idx].reset_index(drop=True)
+    for player in sorted(valid_players):
+        sids = df.loc[df["player"] == player, "session_id"].unique().tolist()
+        rng.shuffle(sids)
+        n = len(sids)
 
-    if df_train_val.empty:
-        log.warning(
-            "Not enough data to produce a val split — all non-test goes to train."
-        )
-        return df_train_val, empty, df_test
+        # At least one session per fold once enough sessions exist; a retained
+        # 1- or 2-session player (only when min_sessions is lowered) degrades
+        # gracefully to train-only / train+test rather than erroring.
+        n_test = max(1, round(test_size * n)) if n >= 2 else 0
+        n_val = max(1, round(val_size * n)) if n >= 3 else 0
+        # Never starve train: keep at least one session out of test+val.
+        while n_test + n_val >= n and (n_test + n_val) > 0:
+            if n_val > 0:
+                n_val -= 1
+            else:
+                n_test -= 1
 
-    # Stage 2: carve val from train_val (adjust fraction for reduced pool)
-    val_fraction = val_size / (1.0 - test_size)
-    groups_tv = df_train_val["session_id"].values
-    gss_val = GroupShuffleSplit(
-        n_splits=1, test_size=val_fraction, random_state=random_seed
-    )
-    train_idx, val_idx = next(gss_val.split(df_train_val, groups=groups_tv))
-    df_train = df_train_val.iloc[train_idx].reset_index(drop=True)
-    df_val = df_train_val.iloc[val_idx].reset_index(drop=True)
+        test_sids.extend(sids[:n_test])
+        val_sids.extend(sids[n_test : n_test + n_val])
+        train_sids.extend(sids[n_test + n_val :])
+
+    df_train = df[df["session_id"].isin(train_sids)].reset_index(drop=True)
+    df_val = df[df["session_id"].isin(val_sids)].reset_index(drop=True)
+    df_test = df[df["session_id"].isin(test_sids)].reset_index(drop=True)
 
     # Verify no session crosses split boundaries
     assert not (
@@ -111,6 +124,9 @@ def split(
     assert not (
         set(df_val["session_id"]) & set(df_test["session_id"])
     ), "Session leakage: val ∩ test non-empty"
+    assert not (
+        set(df_train["session_id"]) & set(df_val["session_id"])
+    ), "Session leakage: train ∩ val non-empty"
 
     return df_train, df_val, df_test
 

@@ -186,6 +186,16 @@ Data-independent work shipped ahead of the real GTA recordings so their arrival 
 - [x] **Dependency fixes** — `websockets` (replay WS client) + `shap` (staged for 5a) added to `requirements.txt`.
 - [x] **Recording Arrival Runbook** — step-by-step for when data lands, in `docs/MONITORING.md`.
 
+## First real recordings — in (first pass done; full runbook pending)
+
+The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8, hydra 5), all 1000 Hz, mixed DPI (800 / 1600). First-pass processing complete:
+
+- [x] **QC gate** — all 18 PASS (`python -m scripts.validate_recordings --dir data/raw`).
+- [x] **Player-stratified split** — `pipeline/features/split.py` rewritten from `GroupShuffleSplit` to a per-player whole-session holdout, so every identity appears in train/val/test (essential at N=18; a random split could drop a player from test). Real-data identification: **test acc 0.853** (f1 0.862), now a trustworthy number.
+- [x] **Mock→real drift quantified** — `reports/drift_mock_vs_real.csv`: **20 / 25 features significant**, led by `wasd_rhythm` (PSI 9.4), `speed/accel_*` (6.6–8.0), `event_rate` (5.1). Empirical proof the mock baseline was unrepresentative.
+
+**Deferred to the full Recording Arrival Runbook (next session):** retrain LSTM-AE on real legit data (`scripts.train_lstm_ae`), re-run `pipeline.adversarial.benchmark`, regenerate the Phase-4 demo (`scripts.build_phase4_demo`), and remove/loosen the mock-data caveats across `docs/ADVERSARIAL.md`, `docs/LSTM_AE.md`, `docs/STREAMING.md`, `README.md`, `CLAUDE.md` (design-choice 5c).
+
 ## Tooling backlog
 
 - **CI pre-ingestion hook** — wire `scripts/validate_recordings.py` into a gate: either a `dvc repro` dependency or a GitHub Action that fails the build when a recording batch has FAILs. Keeps bad data out of the pipeline automatically. (Surfaced during the QC-script work; not yet built.)

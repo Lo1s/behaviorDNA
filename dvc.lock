@@ -5,9 +5,9 @@ stages:
     deps:
     - path: data/raw
       hash: md5
-      md5: a1557977223b3fb07ed3aa0a35f2b6fe.dir
-      size: 86236641
-      nfiles: 32
+      md5: 80abcad66252693bc04c031003c8c1c9.dir
+      size: 135934284
+      nfiles: 35
     - path: pipeline/ingestion/run.py
       hash: md5
       md5: 99a5065acea4eef3bf68c9385d054d8e
@@ -15,28 +15,28 @@ stages:
     outs:
     - path: data/processed/sessions.parquet
       hash: md5
-      md5: 55c1281e2814a7c56582e7a51a1b1bcc
-      size: 9689
+      md5: d348c804b041d0364df5aedae880f3fa
+      size: 10188
   features:
     cmd: python -m pipeline.features.run
     deps:
     - path: data/processed/events.parquet
       hash: md5
-      md5: bb4709a6699fa7b30ed866a3bf29a94a
-      size: 5055570
+      md5: 2c8c44a5d00bfa1261e6571291749502
+      size: 10451825
     - path: data/processed/sessions.parquet
       hash: md5
-      md5: 55c1281e2814a7c56582e7a51a1b1bcc
-      size: 9689
+      md5: d348c804b041d0364df5aedae880f3fa
+      size: 10188
     - path: pipeline/features/run.py
       hash: md5
-      md5: 03eda158d50a80896f5bb963cc40e6ef
-      size: 18917
+      md5: 09f1ac4d881665f7b78a6430b46774c5
+      size: 18918
     outs:
     - path: data/processed/features.parquet
       hash: md5
-      md5: 3417e3988436e554b3bc2a34632dec97
-      size: 30538
+      md5: 58a86f7d55027e15450cdd28e0de4d48
+      size: 60627
   split:
     cmd: python -m pipeline.features.split
     deps:
@@ -46,25 +46,25 @@ stages:
       size: 1157
     - path: data/processed/features.parquet
       hash: md5
-      md5: 3417e3988436e554b3bc2a34632dec97
-      size: 30538
+      md5: 58a86f7d55027e15450cdd28e0de4d48
+      size: 60627
     - path: pipeline/features/split.py
       hash: md5
-      md5: ef3d66fce7262f6cc57a6fdd693ee616
-      size: 5121
+      md5: bf9e0395b73c200c42a9933490f1acce
+      size: 6089
     outs:
     - path: data/splits/test.parquet
       hash: md5
-      md5: d70d615de5e4733a5f3fd6dc3a2337be
-      size: 23823
+      md5: ba7e87cd95536caea14e45cbcd1e397e
+      size: 26743
     - path: data/splits/train.parquet
       hash: md5
-      md5: 73956eaedc61799b2a8409aaa47dc6ab
-      size: 26801
+      md5: 974d627414de19742945af299eb6ec52
+      size: 48214
     - path: data/splits/val.parquet
       hash: md5
-      md5: 557133ed0f448f7dcdcbbee056c1220f
-      size: 21546
+      md5: 3806f250adbbecdccb29cc8c6ce78ee2
+      size: 28170
   train:
     cmd: python -m pipeline.training.run
     deps:
@@ -74,12 +74,12 @@ stages:
       size: 1157
     - path: data/splits/train.parquet
       hash: md5
-      md5: 73956eaedc61799b2a8409aaa47dc6ab
-      size: 26801
+      md5: 974d627414de19742945af299eb6ec52
+      size: 48214
     - path: data/splits/val.parquet
       hash: md5
-      md5: 557133ed0f448f7dcdcbbee056c1220f
-      size: 21546
+      md5: 3806f250adbbecdccb29cc8c6ce78ee2
+      size: 28170
     - path: pipeline/training/run.py
       hash: md5
       md5: ec188c1ce36cc8a67127d966068b127c
@@ -87,16 +87,16 @@ stages:
     outs:
     - path: models/model.onnx
       hash: md5
-      md5: 97ae38048ca2ac117c03f5a327b6483b
-      size: 1210
+      md5: 17b44802145edce2aa65e33aafec2ba2
+      size: 546529
     - path: models/model.pkl
       hash: md5
-      md5: f1f7bbd6230a145eb512f7e152cd66b7
-      size: 7619
+      md5: ac92d3bba378b586b4d117723cabf42d
+      size: 978356
     - path: reports/train_metrics.json
       hash: md5
-      md5: 83b668d1bbd89271596ae42d3bafa81f
-      size: 162
+      md5: 53d1248bb85bddb3718454d108de67d7
+      size: 179
   evaluate:
     cmd: python -m pipeline.evaluation.run
     deps:
@@ -106,12 +106,12 @@ stages:
       size: 1157
     - path: data/splits/test.parquet
       hash: md5
-      md5: d70d615de5e4733a5f3fd6dc3a2337be
-      size: 23823
+      md5: ba7e87cd95536caea14e45cbcd1e397e
+      size: 26743
     - path: models/model.pkl
       hash: md5
-      md5: f1f7bbd6230a145eb512f7e152cd66b7
-      size: 7619
+      md5: ac92d3bba378b586b4d117723cabf42d
+      size: 978356
     - path: pipeline/evaluation/run.py
       hash: md5
       md5: e91b622bee4ea79e9d62084dfba307ad
@@ -119,9 +119,9 @@ stages:
     outs:
     - path: reports/confusion_matrix.csv
       hash: md5
-      md5: aa1dace82028d42442e34769b5d6c9e7
-      size: 96
+      md5: 8a3fd2adeba2e213a72c7fa7f2bb700c
+      size: 77
     - path: reports/eval_metrics.json
       hash: md5
-      md5: 5b47d59446944c87c65a15b0069a8352
-      size: 254
+      md5: 52db1d70da11a98b8bc902cfddcfa17d
+      size: 253

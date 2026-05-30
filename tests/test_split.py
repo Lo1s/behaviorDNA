@@ -99,8 +99,10 @@ class TestSplit:
             ), f"session {sid} appears in multiple splits"
 
     def test_output_sizes_approximately_correct(self):
-        # 4 players × 3 sessions × 3 windows = 36 total windows
-        df = make_features_df(n_players=4, n_sessions_per_player=3, n_windows=3)
+        # 4 players × 5 sessions × 3 windows = 60 total windows.
+        # Per-player holdout at 5 sessions → 3 train / 1 val / 1 test each,
+        # so train is genuinely the largest fold.
+        df = make_features_df(n_players=4, n_sessions_per_player=5, n_windows=3)
         train, val, test = split(
             df, test_size=0.15, val_size=0.15, random_seed=42, min_sessions_per_player=1
         )
@@ -109,3 +111,15 @@ class TestSplit:
         # train should be the largest fold
         assert len(train) > len(val)
         assert len(train) > len(test)
+
+    def test_every_player_in_every_fold(self):
+        # With ≥3 sessions per player, every retained player must appear in
+        # all three folds — the property the player-stratified split buys us.
+        df = make_features_df(n_players=3, n_sessions_per_player=5, n_windows=3)
+        train, val, test = split(
+            df, test_size=0.15, val_size=0.15, random_seed=42, min_sessions_per_player=3
+        )
+        retained = set(df["player"].unique())
+        assert set(train["player"]) == retained
+        assert set(val["player"]) == retained
+        assert set(test["player"]) == retained
