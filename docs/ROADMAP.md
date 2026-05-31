@@ -23,7 +23,7 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
 | 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Bayesian multi-detector aggregator + WebSocket API + live dashboard | ✅ Infra done; combined risk saturates on real data → 4.1 |
 | 4.1. [Live recorder + aggregator redesign](#phase-41--live-recorder--multi-user-backlog) | Aggregator redesign (real data), live recorder, WS auth | 📝 Backlog |
-| 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | 🚧 5a + 5b + 5c + 5d done; 5e registry to go |
+| 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ✅ Done (5a–5e); MLOps in [docs/MLOPS.md](docs/MLOPS.md) |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
 
@@ -37,7 +37,7 @@ Agreed sequencing for the remaining work, now that real recordings are in. Rigor
 4. ~~**5d — ablation study.**~~ ✅ **done** — revealed over-parameterisation at N=18; redundant fingerprint across families.
 5. ~~**1.5 — feature expansion.**~~ ✅ **gate resolved: SKIP/defer** — 5d says the model already has too many features for the data (see Phase 1.5 note). Revisit only with much more data.
 6. ~~**4.1 — aggregator redesign.**~~ ⏸️ **verified blocked & deferred** — prototyped feeding the chunk signal into the live score; all session aggregations ≈ 0.50 (legit natural-variance tail + synthetic sparse injection). Unblock = **real continuous cheat data** ([docs/CHEAT_DATA_COLLECTION.md](CHEAT_DATA_COLLECTION.md)), not more code.
-7. **5e + CI pre-ingestion hook.** ← **currently next.** Production-maturity polish; low dependency; good closing task.
+7. ~~**5e + CI pre-ingestion hook.**~~ ✅ **done** — `scripts/promote_model.py` (registry promotion, verified live on DagsHub) + CI validation gate + `docs/MLOPS.md`. **Roadmap complete** — remaining work is data-gated (real cheat recordings → 4.1) or scales with more sessions.
 
 > **Pre-recording readiness (done):** ahead of the real GTA recordings, shipped data-independent infra — drift detection (5c), a recording QC gate (`scripts/validate_recordings.py`), polling-rate normalization, and dependency fixes. See the [Pre-recording readiness](#pre-recording-readiness-done-while-waiting-for-real-recordings) section and the Recording Arrival Runbook in [docs/MONITORING.md](MONITORING.md).
 
@@ -219,7 +219,7 @@ The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8,
 
 ## Tooling backlog
 
-- **CI pre-ingestion hook** — wire `scripts/validate_recordings.py` into a gate: either a `dvc repro` dependency or a GitHub Action that fails the build when a recording batch has FAILs. Keeps bad data out of the pipeline automatically. (Surfaced during the QC-script work; not yet built.)
+- [x] **CI pre-ingestion hook** ✅ done — `scripts/validate_recordings.py` now runs as a step in the CI `dvc-repro` job (after `dvc pull`, before `dvc repro`), failing the build on any malformed recording before it can poison the pipeline. See `.github/workflows/ci.yml` + [docs/MLOPS.md](MLOPS.md).
 
 ---
 
@@ -254,10 +254,10 @@ The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8,
 - [x] Leave-one-group-out + only-group, 5 feature families, 8-seed-averaged val accuracy
 - **Finding:** the player fingerprint is **redundant across families** (mouse-kinematics and keyboard each ≈ 0.75–0.79 *alone* vs 0.33 chance), and the full 25-feature model is **over-parameterised at N=18 sessions** — dropping a whole family often *raises* val accuracy above the full model (0.72). → directly gates Phase 1.5 (see below). Figure `reports/figures/phase5d_ablation.png`
 
-**5e. Model registry hardening**
-- [ ] MLflow Model Registry stages (Staging → Production)
-- [ ] `scripts/promote_model.py` — promotes best run based on test accuracy
-- [ ] `docs/MLOPS.md` — documents drift monitoring + registry promotion
+**5e. Model registry hardening** ✅ done — `scripts/promote_model.py` + `docs/MLOPS.md`
+- [x] MLflow Model Registry stages (Staging → Production) — training logs+registers a `scaler+classifier` pipeline version per run; **verified live on DagsHub** (v1 → Production). Alias fallback for MLflow's stage→alias deprecation.
+- [x] `scripts/promote_model.py` — selects the best registered version by `val_accuracy` and promotes it to Production; `select_best_run` unit-tested (`tests/test_promote_model.py`), live write degrades gracefully without creds
+- [x] `docs/MLOPS.md` — drift monitoring + registry promotion + CI gates in one place
 
 ---
 

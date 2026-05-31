@@ -55,6 +55,7 @@ from sklearn.neighbors import LocalOutlierFactor
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import SVC, OneClassSVM
 
+from pipeline.constants import IDENTIFIER_REGISTRY_NAME
 from pipeline.features.run import FEATURE_COLS
 
 log = logging.getLogger(__name__)
@@ -638,6 +639,32 @@ def log_to_mlflow(artifact: dict, metrics: dict, cfg: dict) -> None:
                 importances = pd.Series(model.feature_importances_, index=FEATURE_COLS)
                 for feat, imp in importances.nlargest(10).items():
                     mlflow.log_metric(f"importance_{feat}", float(imp))
+
+            # Log a registerable MLflow *model* (scaler + classifier as one
+            # servable pipeline) and register a new version in the Model
+            # Registry. scripts/promote_model.py later promotes the best version
+            # to Production. Identification models only; skipped gracefully if the
+            # backend has no registry.
+            if (
+                artifact.get("trained")
+                and artifact.get("task") == "identification"
+                and model is not None
+            ):
+                try:
+                    import mlflow.sklearn
+                    from sklearn.pipeline import Pipeline
+
+                    pipe = Pipeline([("scaler", artifact["scaler"]), ("model", model)])
+                    mlflow.sklearn.log_model(
+                        pipe,
+                        artifact_path="model",
+                        registered_model_name=IDENTIFIER_REGISTRY_NAME,
+                    )
+                    log.info("Registered model version: %s", IDENTIFIER_REGISTRY_NAME)
+                except Exception as reg_exc:
+                    log.warning(
+                        "log_model/registry skipped (%s) — run still logged.", reg_exc
+                    )
 
         log.info("MLflow run logged to %s", cfg["mlflow"]["tracking_uri"])
     except Exception as exc:

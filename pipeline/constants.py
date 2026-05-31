@@ -20,3 +20,8 @@ Genuinely tunable settings (model type, split sizes, hyperparameters) live in
 # extraction) and pipeline/inference/streaming.py (online window flushing);
 # the two MUST agree or streamed features won't match what the model trained on.
 WINDOW_MS = 30_000  # 30 seconds
+
+# Name of the identification model in the MLflow Model Registry. Shared by the
+# training stage (which logs+registers a version each run) and
+# scripts/promote_model.py (which promotes the best version to Production).
+IDENTIFIER_REGISTRY_NAME = "behaviordna-identifier"

@@ -70,6 +70,12 @@ jobs:
         if: env.DAGSHUB_TOKEN != ''
         run: dvc pull
 
+      - name: Validate recordings (pre-ingestion gate)
+        # Fails the build if any raw recording is malformed (bad schema, corrupt
+        # event_count, too-short session) before it can poison the pipeline.
+        if: env.DAGSHUB_TOKEN != ''
+        run: python -m scripts.validate_recordings --dir data/raw
+
       - name: Reproduce pipeline
         if: env.DAGSHUB_TOKEN != ''
         run: dvc repro --force

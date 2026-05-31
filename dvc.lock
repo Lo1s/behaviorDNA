@@ -82,12 +82,12 @@ stages:
       size: 28170
     - path: pipeline/training/run.py
       hash: md5
-      md5: 6c46276c0d0e861ec886b38fa029ed95
-      size: 24174
+      md5: 08dba388223a9a7ba4575a0bb75829b2
+      size: 25503
     outs:
     - path: models/model.onnx
       hash: md5
-      md5: 51ee711172bd3068ffc4ac17e57e2660
+      md5: 51e6ac55f15c599ee05297b7addcc788
       size: 546529
     - path: models/model.pkl
       hash: md5
