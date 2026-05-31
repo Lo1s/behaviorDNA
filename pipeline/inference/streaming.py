@@ -36,8 +36,10 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+import pandas as pd
 
 from pipeline.adversarial.benchmark import _build_detectors, load_synthetic_features
+from pipeline.constants import WINDOW_MS
 from pipeline.features.run import (
     FEATURE_COLS,
     polling_rate_norm,
@@ -93,11 +95,108 @@ class ScoreUpdate:
 
 
 # ---------------------------------------------------------------------------
-# Streaming engine
+# Pure scoring helpers (no engine state) — separately unit-testable.
+# The state machine below owns *when* to score (buffering + window/chunk
+# boundaries); these own *how* to turn a completed unit into scores.
 # ---------------------------------------------------------------------------
 
 
-WINDOW_MS = 30_000
+def compute_window_feature_row(
+    events: list[dict],
+    w_start: float,
+    w_end: float,
+    norm_factor: float,
+    rate_norm: float,
+) -> Optional[dict]:
+    """Events in [w_start, w_end) → one classical feature-row dict (or None).
+
+    Mirrors the offline feature pipeline exactly. Returns None when the window
+    has fewer than 2 events: ``process_session_windows`` divides by the window
+    span (t_max − t_anchor), so a single-event window has zero duration.
+    """
+    window_events = [e for e in events if w_start <= e.get("t", 0.0) < w_end]
+    if len(window_events) < 2:
+        return None
+    rows = [
+        {
+            "session_id": "stream",
+            "t": float(ev.get("t", 0.0)),
+            "event_type": ev.get("type", ""),
+            "x": ev.get("x"),
+            "y": ev.get("y"),
+            "dx": ev.get("dx"),
+            "dy": ev.get("dy"),
+            "pressed": ev.get("pressed"),
+            "key": ev.get("key"),
+        }
+        for ev in window_events
+    ]
+    windows = process_session_windows(pd.DataFrame(rows), norm_factor, rate_norm)
+    # One 30s span → one zero-anchored window row.
+    return windows[0] if windows else None
+
+
+def score_window_features(
+    feature_row: dict, scaler, detectors: dict[str, object]
+) -> dict[str, float]:
+    """Feature-row dict → {detector_name: anomaly_score} (higher = more anomalous).
+
+    NaN features (e.g. a window with no clicks/keys) are filled with 0.0, the
+    same as the training pipeline.
+    """
+    x_vals = []
+    for col in FEATURE_COLS:
+        v = feature_row.get(col, 0.0)
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            v = 0.0
+        x_vals.append(float(v))
+    x_scaled = scaler.transform(np.array(x_vals, dtype=np.float64).reshape(1, -1))
+    return {
+        name: float(-det.score_samples(x_scaled)[0]) for name, det in detectors.items()
+    }
+
+
+def score_chunk(
+    events: list[dict],
+    model,
+    stats: dict,
+    chunk_length: int,
+    norm_factor: float,
+    device: str,
+) -> Optional[float]:
+    """chunk_length events → LSTM-AE reconstruction error (or None if too short).
+
+    torch + the sequence model are imported lazily so importing this module and
+    running the classical-only path never require torch.
+    """
+    import torch
+
+    from pipeline.models.lstm_ae import score_sequences
+    from pipeline.sequences.preprocessing import (
+        apply_normalizer,
+        session_to_event_tensor,
+    )
+
+    # session_to_event_tensor recomputes norm_factor = sensitivity*dpi/800, so we
+    # feed sensitivity=norm_factor (dpi=800) to reproduce this session's actual
+    # norm_factor exactly (see SessionStreamState.configure_for_session). Hardcoding
+    # 1.0/800 mis-scaled mouse kinematics on non-default hardware (sens≠1, dpi≠800).
+    tensor = session_to_event_tensor(
+        {"events": events, "sensitivity": norm_factor, "dpi": 800.0}
+    )
+    if len(tensor) < chunk_length:
+        return None
+    tensor = tensor[:chunk_length]
+    normalized = apply_normalizer(tensor, stats)
+    scores = score_sequences(
+        model, torch.from_numpy(normalized[None]).float(), batch_size=1, device=device
+    )
+    return float(scores[0])
+
+
+# ---------------------------------------------------------------------------
+# Streaming engine
+# ---------------------------------------------------------------------------
 
 
 class SessionStreamState:
@@ -232,99 +331,37 @@ class SessionStreamState:
     # -------------------------------------------------------------------
 
     def _flush_window(self, w_start: float, w_end: float) -> None:
-        """Compute classical-detector scores for the events in [w_start, w_end)."""
-        import pandas as pd
-
-        window_events = [e for e in self.events if w_start <= e.get("t", 0.0) < w_end]
-        # process_session_windows divides by (t_max - t_anchor); a single-event
-        # window has zero duration and triggers a divide-by-zero. Two events
-        # is the minimum that produces a meaningful feature row.
-        if len(window_events) < 2:
+        """Score the completed window: delegate feature extraction + scoring,
+        then fold the result into running session state."""
+        feat_row = compute_window_feature_row(
+            self.events, w_start, w_end, self.norm_factor, self.rate_norm
+        )
+        if feat_row is None:
             return
-
-        rows = []
-        for ev in window_events:
-            rows.append(
-                {
-                    "session_id": "stream",
-                    "t": float(ev.get("t", 0.0)),
-                    "event_type": ev.get("type", ""),
-                    "x": ev.get("x"),
-                    "y": ev.get("y"),
-                    "dx": ev.get("dx"),
-                    "dy": ev.get("dy"),
-                    "pressed": ev.get("pressed"),
-                    "key": ev.get("key"),
-                }
-            )
-        df = pd.DataFrame(rows)
-        windows = process_session_windows(df, self.norm_factor, self.rate_norm)
-        if not windows:
-            return
-
-        # process_session_windows returns *zero-anchored* windows; since this
-        # batch contains exactly one 30s span it will produce 1 row.
-        feat_row = windows[0]
-        # NaN can come from feature helpers when the window has e.g. no clicks
-        # or no key events. The training pipeline does the same fillna(0.0).
-        x_vals = []
-        for col in FEATURE_COLS:
-            v = feat_row.get(col, 0.0)
-            if v is None or (isinstance(v, float) and np.isnan(v)):
-                v = 0.0
-            x_vals.append(float(v))
-        x = np.array(x_vals, dtype=np.float64).reshape(1, -1)
-        x_scaled = self.feature_scaler.transform(x)
-
-        per_detector_now: dict[str, float] = {}
-        for name, det in self.classical_detectors.items():
-            score = float(-det.score_samples(x_scaled)[0])
-            per_detector_now[name] = score
+        scores = score_window_features(
+            feat_row, self.feature_scaler, self.classical_detectors
+        )
+        for name, score in scores.items():
             if score > self._classical_max[name]:
                 self._classical_max[name] = score
-
-        self.completed_windows.append(
-            {"start": w_start, "end": w_end, **per_detector_now}
-        )
+        self.completed_windows.append({"start": w_start, "end": w_end, **scores})
 
     def _flush_chunk(self) -> None:
-        """Score the next ``chunk_length`` events with the LSTM-AE."""
-        if self.lstm_ae_model is None or self.lstm_ae_stats is None:
-            # No LSTM — just drop the chunk's worth of events and continue
-            del self.chunk_buffer[: self.chunk_length]
-            return
-
-        import torch
-
-        from pipeline.models.lstm_ae import score_sequences
-        from pipeline.sequences.preprocessing import (
-            apply_normalizer,
-            session_to_event_tensor,
-        )
-
+        """Score the next ``chunk_length`` events with the LSTM-AE and record it."""
         chunk_events = self.chunk_buffer[: self.chunk_length]
         del self.chunk_buffer[: self.chunk_length]
-
-        # Convert to (chunk_length, 8) tensor using the same path as offline.
-        # session_to_event_tensor recomputes norm_factor = sensitivity*dpi/800,
-        # so we feed sensitivity=self.norm_factor (dpi=800) to reproduce this
-        # session's actual norm_factor exactly. Hardcoding 1.0/800 here used to
-        # mis-scale mouse kinematics on any non-default hardware (sens≠1, dpi≠800),
-        # which made every chunk reconstruct poorly.
-        tensor = session_to_event_tensor(
-            {"events": chunk_events, "sensitivity": self.norm_factor, "dpi": 800.0}
-        )
-        if len(tensor) < self.chunk_length:
-            return
-        tensor = tensor[: self.chunk_length]
-        normalized = apply_normalizer(tensor, self.lstm_ae_stats)
-        scores = score_sequences(
+        if self.lstm_ae_model is None or self.lstm_ae_stats is None:
+            return  # No LSTM — the chunk's events are dropped above.
+        score = score_chunk(
+            chunk_events,
             self.lstm_ae_model,
-            torch.from_numpy(normalized[None]).float(),
-            batch_size=1,
-            device=self.device,
+            self.lstm_ae_stats,
+            self.chunk_length,
+            self.norm_factor,
+            self.device,
         )
-        self.lstm_chunk_scores.append(float(scores[0]))
+        if score is not None:
+            self.lstm_chunk_scores.append(score)
 
     def _build_update(self, t: float, triggered_by: str) -> ScoreUpdate:
         # Only include detectors that have actually produced a real score.

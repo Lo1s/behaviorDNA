@@ -36,6 +36,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from pipeline.constants import WINDOW_MS
+
 log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).parents[2]
@@ -44,7 +46,6 @@ EVENTS_IN = PROCESSED_DIR / "events.parquet"
 SESSIONS_IN = PROCESSED_DIR / "sessions.parquet"
 FEATURES_OUT = PROCESSED_DIR / "features.parquet"
 
-WINDOW_MS = 30_000  # 30 seconds
 WASD_KEYS = {"w", "a", "s", "d", "Key.up", "Key.down", "Key.left", "Key.right"}
 
 # Mouse polling rate (Hz) that rate-based features are normalised to. A 125 Hz

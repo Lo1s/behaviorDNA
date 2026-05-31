@@ -83,7 +83,7 @@ This is **what the model actually learnt to flag**. Headline numbers:
 
 ### Session-level (LSTMAutoencoder/session)
 
-Each session's chunk scores aggregated to their 95th percentile, then AUC computed across sessions.
+Each session's chunk scores aggregated to their **p95** (95th percentile — the value below which 95% of that session's chunk scores fall; a robust "near-max" that ignores a single freak outlier chunk the way a plain `max` wouldn't), then AUC computed across sessions.
 
 | Cheat | LSTM-AE session AUC (real) |
 |---|---|

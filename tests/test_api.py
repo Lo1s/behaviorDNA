@@ -7,7 +7,7 @@ Unit tests for api/main.py
 import pandas as pd
 from fastapi.testclient import TestClient
 
-from api.main import FeatureVector, _vec_to_array, app
+from api.main import FeatureVector, _vec_to_frame, app
 from pipeline.features.run import FEATURE_COLS
 from pipeline.training.run import train_isolation_forest, train_lightgbm
 
@@ -106,16 +106,17 @@ FEATURE_PAYLOAD = {c: 0.5 for c in FEATURE_COLS}
 # ---------------------------------------------------------------------------
 
 
-class TestVecToArray:
+class TestVecToFrame:
     def test_none_values_become_zero(self):
         vec = FeatureVector(session_id="s1")
-        arr = _vec_to_array(vec)
-        assert (arr == 0.0).all()
+        frame = _vec_to_frame(vec)
+        assert (frame.to_numpy() == 0.0).all()
 
-    def test_array_shape_matches_feature_cols(self):
+    def test_frame_shape_and_columns_match_feature_cols(self):
         vec = FeatureVector(session_id="s1")
-        arr = _vec_to_array(vec)
-        assert arr.shape == (1, len(FEATURE_COLS))
+        frame = _vec_to_frame(vec)
+        assert frame.shape == (1, len(FEATURE_COLS))
+        assert list(frame.columns) == FEATURE_COLS
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ from sklearn.preprocessing import StandardScaler
 
 from pipeline.inference.aggregator import RiskAggregator
 from pipeline.inference.streaming import SessionStreamState
-from scripts.replay_session import _maybe_inject_cheat, replay_offline
+from scripts.replay_session import inject_cheat_if_requested, replay_offline
 
 
 def _tiny_stream_state(chunk_length: int = 8) -> SessionStreamState:
@@ -113,14 +113,14 @@ def _tiny_session(n_events: int = 200, with_clicks: bool = True) -> dict:
 class TestCheatInjection:
     def test_no_injection_returns_passthrough(self):
         session = _tiny_session()
-        out = _maybe_inject_cheat(session, cheat_type=None, inject_at_s=None)
+        out = inject_cheat_if_requested(session, cheat_type=None, inject_at_s=None)
         assert out["cheat_label"] == "legit"
         assert out["cheat_segments"] == []
         assert len(out["events"]) == len(session["events"])
 
     def test_aimbot_injection_at_middle_preserves_pre_events(self):
         session = _tiny_session(n_events=200)
-        out = _maybe_inject_cheat(session, cheat_type="aimbot", inject_at_s=10.0)
+        out = inject_cheat_if_requested(session, cheat_type="aimbot", inject_at_s=10.0)
         # Cheat label set + at least one cheat segment
         assert out["cheat_label"] == "aimbot"
         assert len(out["cheat_segments"]) >= 1
@@ -131,7 +131,7 @@ class TestCheatInjection:
 
     def test_injection_past_session_end_is_noop(self):
         session = _tiny_session(n_events=10)  # ~1 second
-        out = _maybe_inject_cheat(session, cheat_type="aimbot", inject_at_s=120.0)
+        out = inject_cheat_if_requested(session, cheat_type="aimbot", inject_at_s=120.0)
         # Falls back to original; no cheat segments
         assert out == session  # exact dict equality
 

@@ -52,6 +52,8 @@ events ──►   ─┤    SessionStreamState (pipeline/inference)           �
 
 All five components share one in-memory state machine (`SessionStreamState`) that ingests events one at a time. Transport is decoupled — the same engine is driven by WebSocket events in production and by `replay_offline()` calls in tests and the demo generator.
 
+> **p95** above = the 95th percentile: the value below which 95% of that session's chunk reconstruction scores fall. It's a robust "near-maximum" — it captures "this session had some very cheat-like chunks" without letting a single freak outlier chunk dominate the way a plain `max` would.
+
 ---
 
 ## Plain-English aggregator math

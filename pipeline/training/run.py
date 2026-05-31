@@ -68,8 +68,15 @@ ONNX_OUT = ROOT / "models" / "model.onnx"
 METRICS_OUT = ROOT / "reports" / "train_metrics.json"
 
 
-def _prep_X(df: pd.DataFrame) -> np.ndarray:
-    return df[FEATURE_COLS].fillna(0.0).values
+def _prep_X(df: pd.DataFrame) -> pd.DataFrame:
+    """Feature matrix as a FEATURE_COLS-named frame.
+
+    Returning a named frame (not a bare array) lets the scaler + classifier
+    record real feature names (``feature_names_in_``), which keeps predict-time
+    free of the sklearn "X does not have valid feature names" warning and makes
+    SHAP/feature-importance outputs read as real names instead of Column_N.
+    """
+    return df[FEATURE_COLS].fillna(0.0)
 
 
 def train_lightgbm(
@@ -113,7 +120,7 @@ def train_lightgbm(
     le = LabelEncoder()
     y_train = le.fit_transform(train_df["player"])
 
-    scaler = StandardScaler()
+    scaler = StandardScaler().set_output(transform="pandas")
     X_train = scaler.fit_transform(_prep_X(train_df))
 
     lgbm_params = {k: v for k, v in cfg["lightgbm"].items() if k != "class_weight"}
@@ -161,8 +168,11 @@ def train_isolation_forest(
     cfg: dict,
 ) -> tuple[dict, dict]:
     """Fit StandardScaler + IsolationForest (unsupervised — no player labels needed)."""
+    # Anomaly detectors stay on nameless numpy: they don't need feature names
+    # (no SHAP-for-identification use), and naming them makes LOF's novelty mode
+    # emit a spurious sklearn feature-names warning. .to_numpy() drops the names.
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(_prep_X(train_df))
+    X_train = scaler.fit_transform(_prep_X(train_df).to_numpy())
 
     seed = cfg["data"]["random_seed"]
     if_params = dict(cfg["isolation_forest"])
@@ -235,7 +245,7 @@ def train_random_forest(
 
     le = LabelEncoder()
     y_train = le.fit_transform(train_df["player"])
-    scaler = StandardScaler()
+    scaler = StandardScaler().set_output(transform="pandas")
     X_train = scaler.fit_transform(_prep_X(train_df))
 
     seed = cfg["data"]["random_seed"]
@@ -316,7 +326,7 @@ def train_xgboost(
 
     le = LabelEncoder()
     y_train = le.fit_transform(train_df["player"])
-    scaler = StandardScaler()
+    scaler = StandardScaler().set_output(transform="pandas")
     X_train = scaler.fit_transform(_prep_X(train_df))
 
     seed = cfg["data"]["random_seed"]
@@ -399,7 +409,7 @@ def train_svc(
 
     le = LabelEncoder()
     y_train = le.fit_transform(train_df["player"])
-    scaler = StandardScaler()
+    scaler = StandardScaler().set_output(transform="pandas")
     X_train = scaler.fit_transform(_prep_X(train_df))
 
     seed = cfg["data"]["random_seed"]
@@ -447,8 +457,10 @@ def train_lof(
     cfg: dict,
 ) -> tuple[dict, dict]:
     """Fit StandardScaler + LocalOutlierFactor (novelty=True)."""
+    # Nameless numpy on purpose — see train_isolation_forest (LOF novelty mode
+    # otherwise emits a spurious feature-names warning even on a named frame).
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(_prep_X(train_df))
+    X_train = scaler.fit_transform(_prep_X(train_df).to_numpy())
 
     lof_params = dict(cfg["lof"])
     model = LocalOutlierFactor(**lof_params, novelty=True)
@@ -490,8 +502,9 @@ def train_one_class_svm(
     cfg: dict,
 ) -> tuple[dict, dict]:
     """Fit StandardScaler + OneClassSVM."""
+    # Nameless numpy on purpose — anomaly detectors don't need feature names.
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(_prep_X(train_df))
+    X_train = scaler.fit_transform(_prep_X(train_df).to_numpy())
 
     ocsvm_params = dict(cfg["one_class_svm"])
     model = OneClassSVM(**ocsvm_params)

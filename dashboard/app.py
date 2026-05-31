@@ -244,7 +244,11 @@ with tab3:
         if st.button("🔮 Predict", type="primary"):
             scaler = artifact["scaler"]
             mdl = artifact["model"]
-            x = np.array([[values[f] for f in FEATURE_COLS]])
+            # Named frame: the fitted scaler + model carry feature names, so a
+            # bare array would trigger the sklearn feature-names warning.
+            x = pd.DataFrame(
+                [{f: values[f] for f in FEATURE_COLS}], columns=FEATURE_COLS
+            )
             x_sc = scaler.transform(x)
 
             if model_type == "lightgbm":
@@ -277,8 +281,10 @@ with tab3:
                 st.plotly_chart(fig_p, use_container_width=True)
 
             elif model_type == "isolation_forest":
-                score = float(mdl.score_samples(x_sc)[0])
-                is_anomaly = mdl.predict(x_sc)[0] == -1
+                # Anomaly scaler/model fit on nameless numpy — feed numpy.
+                x_sc_np = scaler.transform(x.to_numpy())
+                score = float(mdl.score_samples(x_sc_np)[0])
+                is_anomaly = mdl.predict(x_sc_np)[0] == -1
                 st.metric(
                     "Anomaly score",
                     f"{score:.4f}",
@@ -317,10 +323,11 @@ with tab4:
         scaler = artifact["scaler"]
         mdl = artifact["model"]
         model_type = artifact.get("model_type", "")
-        x_all = scaler.transform(sess[FEATURE_COLS].fillna(0).values)
 
         if model_type == "lightgbm":
             le = artifact["label_encoder"]
+            # Named frame → classifier carries feature names (no sklearn warning).
+            x_all = scaler.transform(sess[FEATURE_COLS].fillna(0))
             preds = le.inverse_transform(mdl.predict(x_all))
             sess["predicted"] = preds
             actual_player = sess["player"].iloc[0]
@@ -438,7 +445,7 @@ with tab5:
             # Imports kept inside the handler so the dashboard loads without
             # building the streaming pipeline upfront.
             from pipeline.inference.streaming import build_stream_state
-            from scripts.replay_session import _maybe_inject_cheat
+            from scripts.replay_session import inject_cheat_if_requested
 
             with st.spinner(
                 "Loading streaming pipeline (LSTM-AE + detectors + aggregator)…"
@@ -448,7 +455,7 @@ with tab5:
             with open(RAW_DIR / session_path, encoding="utf-8") as f:
                 session = json.load(f)
             cheat = None if cheat_type == "(none)" else cheat_type
-            session = _maybe_inject_cheat(
+            session = inject_cheat_if_requested(
                 session, cheat, inject_at_s if cheat else None
             )
 

@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
@@ -91,13 +91,15 @@ class AnomalyPrediction(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _vec_to_array(vec: FeatureVector) -> np.ndarray:
-    """Convert Pydantic model to (1, len(FEATURE_COLS)) float64 array.
+def _vec_to_frame(vec: FeatureVector) -> pd.DataFrame:
+    """Convert Pydantic model to a 1-row FEATURE_COLS-named float64 frame.
 
-    None values → 0.0 to match the training-time fillna behaviour.
+    A named frame (not a bare array) keeps the persisted scaler + classifier —
+    both fitted with feature names — from emitting the sklearn "X does not have
+    valid feature names" warning at predict time. None → 0.0 (matches training).
     """
-    vals = [getattr(vec, col) or 0.0 for col in FEATURE_COLS]
-    return np.array(vals, dtype=np.float64).reshape(1, -1)
+    vals = {col: float(getattr(vec, col) or 0.0) for col in FEATURE_COLS}
+    return pd.DataFrame([vals], columns=FEATURE_COLS)
 
 
 def _get_artifact(request: Request) -> dict:
@@ -199,7 +201,7 @@ def predict_player(vec: FeatureVector, request: Request) -> PlayerPrediction:
     _require_model_type(artifact, "lightgbm")
     _require_trained(artifact)
 
-    X = _vec_to_array(vec)
+    X = _vec_to_frame(vec)
     X_scaled = artifact["scaler"].transform(X)
     model = artifact["model"]
     le = artifact["label_encoder"]
@@ -224,7 +226,8 @@ def predict_anomaly(vec: FeatureVector, request: Request) -> AnomalyPrediction:
     _require_model_type(artifact, "isolation_forest")
     _require_trained(artifact)
 
-    X = _vec_to_array(vec)
+    # Anomaly scaler/model were fit on nameless numpy (see training/run.py).
+    X = _vec_to_frame(vec).to_numpy()
     X_scaled = artifact["scaler"].transform(X)
     model = artifact["model"]
 

@@ -31,7 +31,6 @@ import pickle
 import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from pipeline.features.run import FEATURE_COLS
@@ -45,8 +44,10 @@ EVAL_OUT = ROOT / "reports" / "eval_metrics.json"
 CM_OUT = ROOT / "reports" / "confusion_matrix.csv"
 
 
-def _prep_X(df: pd.DataFrame) -> np.ndarray:
-    return df[FEATURE_COLS].fillna(0.0).values
+def _prep_X(df: pd.DataFrame) -> pd.DataFrame:
+    # Named frame so the (set_output="pandas") scaler + classifier stay
+    # feature-name-aware — no predict-time sklearn warning. See training/run.py.
+    return df[FEATURE_COLS].fillna(0.0)
 
 
 _CLASSIFIER_TYPES = frozenset({"lightgbm", "random_forest", "xgboost", "svc"})
@@ -122,7 +123,9 @@ def _evaluate_anomaly_detector(
     model = artifact["model"]
     model_type = artifact["model_type"]
 
-    X_test = scaler.transform(_prep_X(test_df))
+    # Anomaly scaler/model were fit on nameless numpy (see training/run.py) —
+    # feed numpy so we don't trip the reverse feature-names warning.
+    X_test = scaler.transform(_prep_X(test_df).to_numpy())
     scores = model.score_samples(X_test)
     preds = model.predict(X_test)
     pct_anomaly = float((preds == -1).mean())

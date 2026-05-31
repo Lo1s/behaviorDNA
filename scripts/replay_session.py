@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _maybe_inject_cheat(
+def inject_cheat_if_requested(
     session: dict, cheat_type: str | None, inject_at_s: float | None
 ) -> dict:
     """If a cheat type is configured, slice the session and overlay synthetic events.
@@ -291,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
         session.get("duration_ms", 0.0) / 1000.0,
     )
 
-    session = _maybe_inject_cheat(session, args.inject_cheat, args.inject_at)
+    session = inject_cheat_if_requested(session, args.inject_cheat, args.inject_at)
     if args.inject_cheat:
         log.info(
             "Injected cheat: %s starting at t=%.1fs  → %d segments",
