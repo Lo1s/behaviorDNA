@@ -32,8 +32,8 @@ Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
 Agreed sequencing for the remaining work, now that real recordings are in. Rigor/interpretability first (now meaningful on real data), cheap narrative-closers next, hard/data-limited problems last. **This order is a guide, not a contract — revisit it if implementing one phase changes what the next should be.**
 
 1. ~~**5a — SHAP explainability.**~~ ✅ **done** — `notebooks/12_explainability.ipynb` + `pipeline/explainability.py`; included the same-hardware hydra-vs-dninix deep-dive and LSTM-AE per-channel attribution.
-2. **5c notebook 14 — mock→real drift walkthrough.** ← **currently next.** Quick win; data + `reports/drift_mock_vs_real.csv` already exist.
-3. **5b — calibration** (reliability diagrams, Brier/ECE). Rigor signal; diagnoses *why* the aggregator saturates → sets up 4.1 with evidence.
+2. ~~**5c notebook 14 — mock→real drift walkthrough.**~~ ✅ **done** — `notebooks/14_drift.ipynb`.
+3. **5b — calibration** (reliability diagrams, Brier/ECE). ← **currently next.** Rigor signal; diagnoses *why* the aggregator saturates → sets up 4.1 with evidence.
 4. **5d — ablation study.** Which of the 25 features carry the signal. **Gate for Phase 1.5.**
 5. **1.5 — feature expansion.** Only if 5a/5d surface a concrete gap; otherwise skip and say so.
 6. **4.1 — aggregator redesign.** Split it: feeding the chunk-level LSTM signal into the live score is doable now; the "combined > best-individual" recalibration is data-starved at 18 sessions — defer until more recordings land.
@@ -243,7 +243,7 @@ The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8,
 - [x] CLI: `python -m pipeline.monitoring.drift`
 - [x] `docs/MONITORING.md` — plain-English KS/PSI explanation + worked example + Recording Arrival Runbook
 - [x] `tests/test_drift.py` (13 tests)
-- [ ] `notebooks/14_drift.ipynb` — visual mock-vs-real drift walkthrough (deferred until real recordings land)
+- [x] `notebooks/14_drift.ipynb` — visual mock-vs-real drift walkthrough (PSI bars, KS ECDF overlay, top-feature distribution overlays); figures `reports/figures/phase5c_*.png`
 
 **5d. Ablation study** — `notebooks/15_ablation.ipynb`
 - [ ] Remove each feature group, re-evaluate, heatmap marginal contribution
