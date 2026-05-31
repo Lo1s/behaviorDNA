@@ -23,7 +23,7 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
 | 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Bayesian multi-detector aggregator + WebSocket API + live dashboard | ✅ Infra done; combined risk saturates on real data → 4.1 |
 | 4.1. [Live recorder + aggregator redesign](#phase-41--live-recorder--multi-user-backlog) | Aggregator redesign (real data), live recorder, WS auth | 📝 Backlog |
-| 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | 🚧 5a explainability + 5c drift done; 5b/5d/5e to go |
+| 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | 🚧 5a + 5b + 5c done; 5d ablation + 5e registry to go |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
 
@@ -33,8 +33,8 @@ Agreed sequencing for the remaining work, now that real recordings are in. Rigor
 
 1. ~~**5a — SHAP explainability.**~~ ✅ **done** — `notebooks/12_explainability.ipynb` + `pipeline/explainability.py`; included the same-hardware hydra-vs-dninix deep-dive and LSTM-AE per-channel attribution.
 2. ~~**5c notebook 14 — mock→real drift walkthrough.**~~ ✅ **done** — `notebooks/14_drift.ipynb`.
-3. **5b — calibration** (reliability diagrams, Brier/ECE). ← **currently next.** Rigor signal; diagnoses *why* the aggregator saturates → sets up 4.1 with evidence.
-4. **5d — ablation study.** Which of the 25 features carry the signal. **Gate for Phase 1.5.**
+3. ~~**5b — calibration** (reliability diagrams, Brier/ECE).~~ ✅ **done** — `notebooks/13_calibration.ipynb`; isotonic improved Brier, Platt hurt (small-N fragility, same root cause as the aggregator saturation).
+4. **5d — ablation study.** ← **currently next.** Which of the 25 features carry the signal. **Gate for Phase 1.5.**
 5. **1.5 — feature expansion.** Only if 5a/5d surface a concrete gap; otherwise skip and say so.
 6. **4.1 — aggregator redesign.** Split it: feeding the chunk-level LSTM signal into the live score is doable now; the "combined > best-individual" recalibration is data-starved at 18 sessions — defer until more recordings land.
 7. **5e + CI pre-ingestion hook.** Production-maturity polish; low dependency; good closing task.
@@ -231,10 +231,11 @@ The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8,
 - [x] **Same-hardware deep-dive** (hydra vs dninix) — SHAP shows timing/rhythm features (`click_interval_std`, `keystroke_periodicity`, `burst_rate`) separate two players on identical hardware → a real behavioural biometric, not a hardware tell
 - [x] LSTM-AE explained via **per-channel reconstruction attribution** (not SHAP-through-an-LSTM): triggerbot flags driven ~16× by the `is_mouse_click_press` channel. `tests/test_explainability.py` (7 tests); figures `reports/figures/phase5a_*.png`
 
-**5b. Calibration** — `notebooks/13_calibration.ipynb`
-- [ ] Reliability diagrams for each classifier
-- [ ] Brier score + ECE
-- [ ] Isotonic / Platt scaling applied, before/after comparison
+**5b. Calibration** ✅ done — `pipeline/calibration.py` + `notebooks/13_calibration.ipynb`
+- [x] Reliability diagram (top-label confidence) for the LightGBM identifier
+- [x] ECE + multiclass Brier (`pipeline/calibration.py`, 9 tests — sklearn has no multiclass versions)
+- [x] Isotonic / Platt scaling via `FrozenEstimator` (sklearn 1.8), fit on val / evaluated on test, before/after table
+- **Finding (honest, N=34 test / 46 cal):** isotonic improved Brier 0.275 → 0.224 keeping accuracy 0.853; Platt *hurt* (acc → 0.824). The same small-data calibration fragility that makes the Phase-4 aggregator saturate (4.1). Figures `reports/figures/phase5b_*.png`
 
 **5c. Drift detection** — `pipeline/monitoring/drift.py` ✅ done (built early as pre-recording readiness)
 - [x] KS test on feature distributions (`ks_drift`)
