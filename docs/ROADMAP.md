@@ -217,6 +217,15 @@ The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8,
 
 **Open follow-up:** the session-level live-risk aggregator saturates on real data → tracked in [Phase 4.1](#phase-41--live-recorder--multi-user-backlog).
 
+## Cheat-data collection — live signature harness (in progress)
+
+The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separate at the session level. The unblock is **real continuous cheat telemetry**, captured live during offline GTA5. Rather than download a (malware-prone, unlabelled) real aimbot, we generate the cheat *input signature* under full control — methodology in [docs/CHEAT_DATA_COLLECTION.md](CHEAT_DATA_COLLECTION.md).
+
+- [x] **`pipeline/adversarial/live_cheat.py`** — pure, unit-tested planning layer (14 tests): difficulty presets (shared with `bot_generator`), rng-seeded planners for aimbot micro-correction snaps (easing + overshoot/jitter for the soft/evasive case), sub-human triggerbot bursts, and recoil/rapid-fire macros, emitting abstract `InputAction`s; plus `toggle_log_to_segments`.
+- [x] **`collector/cheat_sim.py`** — Windows-side actuator (`SendInput`) + `pynput` toggle-hotkey loop running alongside the recorder. **Safe by construction: no target acquisition, no memory reads, no online** — produces the input signature, not a functional competitive cheat. Offline-only guard + provenance log.
+- [x] **`scripts/label_cheat_segments.py`** — derives `cheat_label` + `cheat_segments` from the toggle keys captured *in-band* by the recorder (no cross-process clock sync) and strips the control keys; drop-in for the pipeline (5 tests).
+- [ ] **Awaiting recordings:** capture real continuous-cheat sessions, then re-run the adversarial benchmark on **real** cheats and **re-attempt Phase 4.1** (continuous cheating → session separates).
+
 ## Tooling backlog
 
 - [x] **CI pre-ingestion hook** ✅ done — `scripts/validate_recordings.py` now runs as a step in the CI `dvc-repro` job (after `dvc pull`, before `dvc repro`), failing the build on any malformed recording before it can poison the pipeline. See `.github/workflows/ci.yml` + [docs/MLOPS.md](MLOPS.md).

@@ -80,6 +80,43 @@ Two complementary recording styles:
 
 ---
 
+## The harness — `cheat_sim.py` (built)
+
+Rather than download a real aimbot, generate the cheat **input signature** under full
+control. The tooling is built and unit-tested:
+
+- **`pipeline/adversarial/live_cheat.py`** — pure planners (shared difficulty presets with
+  the synthetic generator): aimbot micro-correction snaps (eased; overshoot + jitter for the
+  evasive *soft* case), sub-human triggerbot bursts, recoil/rapid-fire macros. Unit-tested.
+- **`collector/cheat_sim.py`** — Windows-side `SendInput` actuator + hotkey loop. **No target
+  acquisition, no memory reads, no networking** — the human does the coarse aim, the harness
+  only performs the inhuman *final correction* / fire timing, so it can't function as a
+  competitive cheat.
+- **`scripts/label_cheat_segments.py`** — turns the in-band toggle keys into
+  `cheat_label` + `cheat_segments`.
+
+**Workflow (Windows host, offline Story Mode):**
+
+```bash
+# 1. start the recorder as usual (records mouse/keyboard + the F8/F9/F10 toggles in-band)
+python recorder_gui.py          # or record_session.py ...
+
+# 2. in parallel, arm the harness (offline confirmation required)
+python cheat_sim.py --difficulty medium --i-am-offline
+#    F8 aimbot · F9 triggerbot · F10 macro · F12 quit
+#    aimbot: aim (right-click) → one superhuman correction snap
+#    triggerbot: hold aim over target → sub-human auto-fire
+#    macro: hold fire → periodic fire + recoil compensation
+
+# 3. after recording, derive labels from the in-band toggles + strip control keys
+python -m scripts.label_cheat_segments data/raw/<session>.json
+```
+
+Run **continuous-cheat** sessions (cheat on through combat) for the session-level signal,
+and **toggled** sessions for within-session localization labels.
+
+---
+
 ## Pipeline integration (drop-in)
 
 Real cheat sessions carry `cheat_label` + `cheat_segments` → identical schema to
@@ -92,8 +129,8 @@ ingest them **unchanged**. Then:
 3. **Re-attempt Phase 4.1:** with continuous real cheating, session-level aggregation of the
    chunk signal should separate (most chunks elevated, not a sparse few) — build the live
    session-risk then, on data that supports it.
-4. A future `scripts/label_cheat_segments.py` (toggle-key timeline → `cheat_segments`) is the
-   one small tool to write when the recordings exist; not built yet.
+4. Label with `python -m scripts.label_cheat_segments <session>.json` (built) — derives
+   `cheat_label` + `cheat_segments` from the in-band toggle keys and strips the control keys.
 
 ---
 
