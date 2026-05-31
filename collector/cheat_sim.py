@@ -37,6 +37,7 @@ import json
 import sys
 import threading
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -51,6 +52,7 @@ from pipeline.adversarial.live_cheat import (  # noqa: E402
     CHEAT_TRIGGERBOT,
     MACRO_PRESET,
     TRIGGERBOT_PRESET,
+    InputAction,
     plan_aim_snap,
     plan_macro_tick,
     plan_trigger_burst,
@@ -93,8 +95,12 @@ class WinMouse:
         class INPUT(ctypes.Structure):
             _fields_ = [("type", wintypes.DWORD), ("u", _INPUTunion)]
 
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+
         self._MOUSEINPUT = MOUSEINPUT
         self._INPUT = INPUT
+        self._POINT = POINT
         self._user32 = ctypes.windll.user32
         self.MOVE = 0x0001
         self.LDOWN, self.LUP = 0x0002, 0x0004
@@ -118,6 +124,21 @@ class WinMouse:
         time.sleep(max(0.0, hold_ms) / 1000.0)
         self._send(up)
 
+    # --- absolute-cursor helpers, used only by --selftest ---
+    def get_pos(self) -> tuple[int, int]:
+        pt = self._POINT()
+        self._user32.GetCursorPos(self._ctypes.byref(pt))
+        return (int(pt.x), int(pt.y))
+
+    def set_pos(self, x: int, y: int) -> None:
+        self._user32.SetCursorPos(int(x), int(y))
+
+    def screen_size(self) -> tuple[int, int]:
+        return (
+            int(self._user32.GetSystemMetrics(0)),
+            int(self._user32.GetSystemMetrics(1)),
+        )
+
 
 def _run_actions(mouse: WinMouse, actions) -> None:
     """Execute a planned InputAction sequence via SendInput."""
@@ -128,6 +149,129 @@ def _run_actions(mouse: WinMouse, actions) -> None:
             mouse.move(a.dx, a.dy)
         elif a.kind == "click":
             mouse.click(a.button, a.hold_ms)
+
+
+# ---------------------------------------------------------------------------
+# Self-test — verify the SendInput actuator without launching the game.
+# build_selftest_plan is pure (unit-tested); run_selftest is the Windows runner.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SelfTestCase:
+    name: str
+    actions: list = field(default_factory=list)
+    expect_dx: int = 0  # summed commanded move dx (sign is what we verify)
+    expect_dy: int = 0
+    expect_clicks: int = 0
+
+
+def build_selftest_plan(rng) -> list[SelfTestCase]:
+    """A fixed sequence exercising every actuator path with known expectations.
+
+    Pure: returns the planned actions + what each should produce, so the runner
+    (and a unit test) can check direction-of-move, that pynput observed it, and
+    click counts. Exact pixel deltas are deliberately *not* asserted — Windows
+    pointer acceleration scales relative moves on screen.
+    """
+
+    def _summary(name, actions):
+        return SelfTestCase(
+            name=name,
+            actions=actions,
+            expect_dx=sum(a.dx for a in actions if a.kind == "move"),
+            expect_dy=sum(a.dy for a in actions if a.kind == "move"),
+            expect_clicks=sum(1 for a in actions if a.kind == "click"),
+        )
+
+    cases = [
+        _summary("move-right", [InputAction("move", dx=120, dy=0)]),
+        _summary("move-left", [InputAction("move", dx=-120, dy=0)]),
+        _summary("move-up", [InputAction("move", dx=0, dy=-90)]),
+        _summary(
+            "aimbot-snap", plan_aim_snap(rng, AIMBOT_PRESETS["medium"], (150, -60))
+        ),
+        _summary("triggerbot-click", plan_trigger_burst(rng, TRIGGERBOT_PRESET, 1)),
+        _summary("macro-tick", plan_macro_tick(rng, MACRO_PRESET)),
+    ]
+    return cases
+
+
+def run_selftest(mouse: WinMouse, countdown_s: int = 5) -> int:
+    """Drive each self-test case and verify it via GetCursorPos + a pynput echo.
+
+    Returns 0 if every case passes (cursor moved in the commanded direction AND
+    pynput — the recorder's capture layer — observed the move/clicks), else 3.
+    """
+    from pynput import mouse as pmouse
+
+    observed = {"moves": 0, "clicks": 0}
+
+    def on_move(x, y):
+        observed["moves"] += 1
+
+    def on_click(x, y, button, pressed):
+        if pressed:
+            observed["clicks"] += 1
+
+    listener = pmouse.Listener(on_move=on_move, on_click=on_click)
+    listener.start()
+
+    sw, sh = mouse.screen_size()
+    cx, cy = sw // 2, sh // 2
+
+    print("\nSelf-test: leave the mouse alone. Starting in", countdown_s, "s…")
+    for i in range(countdown_s, 0, -1):
+        print(f"  {i}…")
+        time.sleep(1.0)
+
+    cases = build_selftest_plan(np.random.default_rng(0))
+    print(f"\n{'case':17}{'commanded Δ':>14}{'cursor Δ':>14}{'clk':>5}  echo  result")
+    print("-" * 68)
+
+    def dir_ok(obs: int, exp: int) -> bool:
+        return abs(obs) <= 3 if exp == 0 else (obs * exp > 0)
+
+    all_pass = True
+    for c in cases:
+        mouse.set_pos(cx, cy)
+        time.sleep(0.05)
+        observed["moves"] = 0
+        observed["clicks"] = 0
+        p0 = mouse.get_pos()
+        _run_actions(mouse, c.actions)
+        time.sleep(0.05)
+        p1 = mouse.get_pos()
+        ddx, ddy = p1[0] - p0[0], p1[1] - p0[1]
+
+        moved_expected = bool(c.expect_dx or c.expect_dy)
+        move_ok = dir_ok(ddx, c.expect_dx) and dir_ok(ddy, c.expect_dy)
+        echo_ok = (observed["moves"] > 0) if moved_expected else True
+        click_ok = observed["clicks"] == c.expect_clicks
+        ok = move_ok and echo_ok and click_ok
+        all_pass = all_pass and ok
+
+        echo = "yes" if (observed["moves"] > 0 or observed["clicks"] > 0) else "no"
+        print(
+            f"{c.name:17}{f'({c.expect_dx},{c.expect_dy})':>14}"
+            f"{f'({ddx},{ddy})':>14}{observed['clicks']:>5}  {echo:>4}  "
+            f"{'PASS' if ok else 'FAIL'}"
+        )
+
+    listener.stop()
+    if all_pass:
+        print(
+            "\n✅ SELF-TEST PASSED — pynput observed the injected input, so the "
+            "recorder will capture the cheat signature. (If 'cursor Δ' is much "
+            "larger than commanded, Windows pointer acceleration is on — fine for "
+            "capture; disable 'Enhance pointer precision' if you want 1:1 aim.)"
+        )
+        return 0
+    print(
+        "\n❌ SELF-TEST FAILED — see the FAIL rows. If moves don't register at all, "
+        "the actuator may need raw-input / pydirectinput on this system."
+    )
+    return 3
 
 
 # ---------------------------------------------------------------------------
@@ -185,14 +329,22 @@ def main() -> int:
         action="store_true",
         help="confirm offline single-player (skips the interactive prompt)",
     )
+    parser.add_argument(
+        "--selftest",
+        action="store_true",
+        help="verify the SendInput actuator on the desktop (no game needed) and exit",
+    )
     args = parser.parse_args()
 
     print(__doc__.split("Usage")[0])  # banner
-    print(f"  Difficulty  : {args.difficulty}")
-    print(f"  Output log  : {OUTPUT_DIR / 'cheat_activity.jsonl'}")
-    if not _confirm_offline(args):
-        print("Not confirmed offline — aborting.")
-        return 1
+
+    # --selftest is a desktop diagnostic (no game) — skip the offline confirmation.
+    if not args.selftest:
+        print(f"  Difficulty  : {args.difficulty}")
+        print(f"  Output log  : {OUTPUT_DIR / 'cheat_activity.jsonl'}")
+        if not _confirm_offline(args):
+            print("Not confirmed offline — aborting.")
+            return 1
 
     if sys.platform != "win32":
         print(
@@ -208,6 +360,10 @@ def main() -> int:
         return 1
 
     mouse_actuator = WinMouse()
+
+    if args.selftest:
+        return run_selftest(mouse_actuator)
+
     state = State(args.difficulty, args.seed)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     log_f = open(OUTPUT_DIR / "cheat_activity.jsonl", "w", encoding="utf-8")
