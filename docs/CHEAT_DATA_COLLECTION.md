@@ -117,6 +117,84 @@ and **toggled** sessions for within-session localization labels.
 
 ---
 
+## Solo first-batch recording protocol & rules
+
+The first batch is recorded by **one player (you)**. That shapes what's worth
+capturing: cheat **detection** is a *within-player* problem (legit chunks vs
+cheat chunks), so solo data is genuinely valuable for it — but player
+*identification* needs more people, so don't expect this batch to move that.
+
+### The one principle that matters most: change ONE thing at a time
+
+The detector must learn **cheat vs legit**, not "session A vs B" or "combat vs
+driving" or "warmed-up vs not". So **match conditions** between your legit and
+cheat data — same hardware, sens/DPI, polling rate, activity, map area, warmup
+state. The cleanest way to guarantee that is a **toggled session** (below):
+legit and cheat chunks come from the *same* session, so the cheat is the only
+variable.
+
+### The single most important legit data: your *best, tryhard* aim
+
+The detector's expensive failure is flagging a skilled human as a cheater. So
+record some **maximum-effort legit combat** — your fastest flicks, quickest
+reactions — with the cheat OFF. That elite-human play is the hard negative that
+teaches the boundary between "very good human" and "superhuman cheat". Without
+it, the model learns "fast = cheat".
+
+### Suggested session matrix (~10–12 sessions, one sitting)
+
+All combat/sniping (aim-cheats need targets — **don't** record aimbot/triggerbot
+in driving/free-roam, there's no cheat signal there).
+
+**A. Toggled sessions — highest value (controlled contrast + exact labels):**
+play legit ~2 min → toggle cheat ON ~2 min → toggle OFF ~2 min, same fight.
+- 2× combat, **aimbot** (F8), `--difficulty medium`
+- 2× combat, **triggerbot** (F9), medium
+- 1× combat, **macro** (F10), medium
+
+**B. Continuous-cheat sessions — unblock session-level detection:**
+cheat ON the whole session (this is what makes *most* chunks cheat-like, which
+the sparse synthetic data couldn't).
+- 1× combat aimbot (medium), 1× combat triggerbot (medium)
+- difficulty spread: 1× aimbot `--difficulty obvious` (easy positive),
+  1× aimbot `--difficulty soft` (the hard, evasive case)
+
+**C. Matched legit — the false-positive boundary:**
+- 2–3× combat **tryhard legit** (cheat sim not running), same gear/map as A/B.
+
+### Rules / checklist
+
+1. **`python cheat_sim.py --selftest`** first — confirm all rows PASS (the
+   recording will capture the input). Then a 30 s pilot: record → run
+   `label_cheat_segments` → eyeball that `cheat_segments` look right *before* the
+   full batch.
+2. **Same hardware all batch** — don't change sens/DPI/polling/resolution
+   mid-session-set (avoids the confound we hit with different DPI).
+3. **One difficulty per session** (it's a `cheat_sim` run-level flag); the
+   `cheat_activity.jsonl` log records it.
+4. **Play naturally** — real movement and aiming; let the bot do only the inhuman
+   correction/fire. Don't stand still or spin aimlessly.
+5. **Clean toggles** — tap F8/F9/F10 once to flip; leave a couple of seconds
+   after toggling before/after the action (clean label boundaries). F12 quits.
+6. **≥ ~6 min per session** (keeps it past the QC duration floor; more chunks).
+7. **Consistent metadata** — same player name spelling, correct `activity`,
+   `polling_rate`, sens, dpi in the recorder every time.
+8. **Offline Story Mode only.**
+9. **Label immediately after each session:**
+   `python -m scripts.label_cheat_segments data/raw/<session>.json` and glance at
+   the printed `cheat_label` / segment count.
+
+### Expectation-setting (solo)
+
+- **Detection benchmark + legit baseline:** strong gains. Real-cheat AUC replaces
+  the synthetic caveat; continuous-cheat sessions let you re-attempt Phase 4.1.
+- **Identification:** unchanged (still 3 players) — that waits for more people.
+- A detector trained on *one* player's legit may over-fit your style (it could
+  call a *different* human "anomalous"). That broadens as more players' legit
+  data lands; fine for a first real-cheat benchmark.
+
+---
+
 ## Pipeline integration (drop-in)
 
 Real cheat sessions carry `cheat_label` + `cheat_segments` → identical schema to
