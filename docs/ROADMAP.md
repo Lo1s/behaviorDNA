@@ -23,7 +23,7 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
 | 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Bayesian multi-detector aggregator + WebSocket API + live dashboard | ✅ Infra done; combined risk saturates on real data → 4.1 |
 | 4.1. [Live recorder + aggregator redesign](#phase-41--live-recorder--multi-user-backlog) | Aggregator redesign (real data), live recorder, WS auth | 📝 Backlog |
-| 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | 🚧 5c drift done; rest not started |
+| 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | 🚧 5a explainability + 5c drift done; 5b/5d/5e to go |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
 
@@ -31,8 +31,8 @@ Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
 
 Agreed sequencing for the remaining work, now that real recordings are in. Rigor/interpretability first (now meaningful on real data), cheap narrative-closers next, hard/data-limited problems last. **This order is a guide, not a contract — revisit it if implementing one phase changes what the next should be.**
 
-1. **5a — SHAP explainability.** Highest portfolio ROI ("why was this session flagged?"). Fold in the same-hardware identification deep-dive (hydra vs dninix). Also feeds the 1.5 decision.
-2. **5c notebook 14 — mock→real drift walkthrough.** Quick win; data + `reports/drift_mock_vs_real.csv` already exist.
+1. ~~**5a — SHAP explainability.**~~ ✅ **done** — `notebooks/12_explainability.ipynb` + `pipeline/explainability.py`; included the same-hardware hydra-vs-dninix deep-dive and LSTM-AE per-channel attribution.
+2. **5c notebook 14 — mock→real drift walkthrough.** ← **currently next.** Quick win; data + `reports/drift_mock_vs_real.csv` already exist.
 3. **5b — calibration** (reliability diagrams, Brier/ECE). Rigor signal; diagnoses *why* the aggregator saturates → sets up 4.1 with evidence.
 4. **5d — ablation study.** Which of the 25 features carry the signal. **Gate for Phase 1.5.**
 5. **1.5 — feature expansion.** Only if 5a/5d surface a concrete gap; otherwise skip and say so.
@@ -225,10 +225,11 @@ The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8,
 
 **Deliverables:**
 
-**5a. SHAP explainability** — `notebooks/12_explainability.ipynb`
-- [ ] Per-prediction SHAP values for LightGBM + LSTM-AE
-- [ ] Population-level feature importance heatmaps per player
-- [ ] "Why was this session flagged?" walkthroughs
+**5a. Explainability** ✅ done — `pipeline/explainability.py` + `notebooks/12_explainability.ipynb`
+- [x] Exact SHAP (TreeExplainer) for the LightGBM identification model — per-player mean-|SHAP| heatmap + beeswarm
+- [x] Per-prediction "why this window → player X?" waterfall walkthroughs
+- [x] **Same-hardware deep-dive** (hydra vs dninix) — SHAP shows timing/rhythm features (`click_interval_std`, `keystroke_periodicity`, `burst_rate`) separate two players on identical hardware → a real behavioural biometric, not a hardware tell
+- [x] LSTM-AE explained via **per-channel reconstruction attribution** (not SHAP-through-an-LSTM): triggerbot flags driven ~16× by the `is_mouse_click_press` channel. `tests/test_explainability.py` (7 tests); figures `reports/figures/phase5a_*.png`
 
 **5b. Calibration** — `notebooks/13_calibration.ipynb`
 - [ ] Reliability diagrams for each classifier
