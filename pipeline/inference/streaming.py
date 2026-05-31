@@ -38,7 +38,11 @@ from typing import Optional
 import numpy as np
 
 from pipeline.adversarial.benchmark import _build_detectors, load_synthetic_features
-from pipeline.features.run import FEATURE_COLS, process_session_windows
+from pipeline.features.run import (
+    FEATURE_COLS,
+    polling_rate_norm,
+    process_session_windows,
+)
 from pipeline.inference.aggregator import RiskAggregator
 
 log = logging.getLogger(__name__)
@@ -64,6 +68,11 @@ class ScoreUpdate:
     detector_logits: dict[str, float] = field(default_factory=dict)
     """Per-detector logit contributions, useful for the dashboard's stacked-area chart."""
     triggered_by: str = ""  # "window" | "chunk" | ""
+    lstm_chunk_score: Optional[float] = None
+    """Instantaneous LSTM-AE reconstruction error of the most recent chunk
+    (None until the first chunk fires). The running p95 of these is what lands
+    in ``per_detector['LSTMAutoencoder']``; this raw per-chunk value is the
+    chunk-level cheat signal the Phase-4 demo plots over time."""
 
     def to_dict(self) -> dict:
         return {
@@ -75,6 +84,11 @@ class ScoreUpdate:
             "session_risk": float(self.session_risk),
             "detector_logits": {k: float(v) for k, v in self.detector_logits.items()},
             "triggered_by": self.triggered_by,
+            "lstm_chunk_score": (
+                float(self.lstm_chunk_score)
+                if self.lstm_chunk_score is not None
+                else None
+            ),
         }
 
 
@@ -135,6 +149,33 @@ class SessionStreamState:
             name: -np.inf for name in classical_detectors
         }
         self._last_update: Optional[ScoreUpdate] = None
+
+    # -------------------------------------------------------------------
+    # Per-session configuration
+    # -------------------------------------------------------------------
+
+    def configure_for_session(
+        self,
+        *,
+        sensitivity: float | None = None,
+        dpi: float | None = None,
+        polling_rate: float | None = None,
+    ) -> None:
+        """Set per-session normalisation from recorder metadata.
+
+        Call this *before* pushing a session's events. It scales the classical
+        window features (``norm_factor``), the LSTM-AE chunk tensor (same
+        ``norm_factor``) and the rate-proportional features (``rate_norm``) the
+        same way the offline training pipeline did. ``build_stream_state`` only
+        provides the no-op defaults (1.0); without this call a real
+        mixed-hardware session (sens≠1, dpi≠800, rate≠1000 Hz) is mis-scaled and
+        every window/chunk looks anomalous. Mock sessions (1.0/800/1000 Hz) are
+        unaffected. Missing fields leave the current value untouched.
+        """
+        if sensitivity is not None and dpi is not None:
+            self.norm_factor = max(float(sensitivity) * float(dpi) / 800.0, 1e-6)
+        if polling_rate is not None:
+            self.rate_norm = polling_rate_norm(polling_rate)
 
     # -------------------------------------------------------------------
     # Core API
@@ -264,9 +305,14 @@ class SessionStreamState:
         chunk_events = self.chunk_buffer[: self.chunk_length]
         del self.chunk_buffer[: self.chunk_length]
 
-        # Convert to (chunk_length, 8) tensor using the same path as offline
+        # Convert to (chunk_length, 8) tensor using the same path as offline.
+        # session_to_event_tensor recomputes norm_factor = sensitivity*dpi/800,
+        # so we feed sensitivity=self.norm_factor (dpi=800) to reproduce this
+        # session's actual norm_factor exactly. Hardcoding 1.0/800 here used to
+        # mis-scale mouse kinematics on any non-default hardware (sens≠1, dpi≠800),
+        # which made every chunk reconstruct poorly.
         tensor = session_to_event_tensor(
-            {"events": chunk_events, "sensitivity": 1.0, "dpi": 800.0}
+            {"events": chunk_events, "sensitivity": self.norm_factor, "dpi": 800.0}
         )
         if len(tensor) < self.chunk_length:
             return
@@ -308,6 +354,9 @@ class SessionStreamState:
             session_risk=float(explanation["posterior_risk"]),
             detector_logits=dict(explanation["per_detector_logit"]),
             triggered_by=triggered_by,
+            lstm_chunk_score=(
+                float(self.lstm_chunk_scores[-1]) if self.lstm_chunk_scores else None
+            ),
         )
         self._last_update = update
         return update

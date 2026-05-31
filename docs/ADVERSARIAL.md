@@ -2,7 +2,7 @@
 
 > Methodology and results write-up for [Phase 3](ROADMAP.md#phase-3--adversarial-bot-generation--detection-benchmark) of the BehaviorDNA roadmap.
 
-> **Data caveat.** Every AUC number below is measured against synthetic cheats injected into the **current 15-session mock dataset** (mouse-moving-on-desktop, not real gameplay). Real GTA recordings from 3 players are pending. The synthetic cheats themselves are realistic (aimbot snap geometry, triggerbot timing, macro periodicity) — the limitation is the *legit baseline* the detectors learn from. Expect the numbers to improve once real gameplay data lands.
+> **Data status (2026-05-30).** The headline results are now measured on **18 real GTA sessions** (3 players) — see [On real data](#on-real-data-2026-05-30--18-real-gta-sessions-3-players). The chunk-level LSTM-AE detects aimbot at AUC 0.79 and triggerbot at 0.93 on real gameplay; classical window features stay at chance for aimbot. The earlier "evolution" tables (Phase 3 baseline → Phase 1) are retained as **historical mock-data baselines** that motivated each phase — they're labelled as such.
 
 ## Why this exists
 
@@ -122,30 +122,43 @@ Phase 1 added 7 trajectory and timing features (see [FEATURES.md](FEATURES.md)) 
 
 ---
 
-### After Phase 4 — Bayesian aggregator (combined detector)
+### On real data (2026-05-30) — 18 real GTA sessions, 3 players
 
-Phase 4 added a calibrated multi-detector aggregator that combines IsolationForest, OneClassSVM, LocalOutlierFactor, and LSTM-AE session scores into one risk in [0, 1]. Honest stratified 50/50 split (44 train / 46 test sessions):
+The headline result. Synthetic cheats injected into the **18 real legit recordings**; LSTM-AE loaded from the persisted artifact; combined detector on an honest stratified 54/54-session split:
 
 | Detector | aimbot | macro | triggerbot |
 |---|---|---|---|
-| IsolationForest | 0.50 | 0.47 | 0.49 |
-| LocalOutlierFactor | 0.49 | 0.54 | 0.48 |
-| OneClassSVM | 0.53 | 0.68 | 0.87 |
-| LSTMAutoencoder (chunk) | **0.78** | 0.70 | **0.96** |
-| LSTMAutoencoder (session-p95) | 0.51 | 0.57 | 0.51 |
-| **Combined (Phase 4)** | 0.41 | 0.66 | 0.56 |
+| IsolationForest | 0.50 | 0.49 | 0.50 |
+| LocalOutlierFactor | 0.50 | 0.51 | 0.50 |
+| OneClassSVM | 0.58 | 0.63 | 0.76 |
+| **LSTMAutoencoder (chunk)** | **0.79** | 0.60 | **0.93** |
+| LSTMAutoencoder (session-p95) | 0.51 | 0.51 | 0.51 |
+| Combined (Phase 4 aggregator) | 0.42 | 0.52 | 0.61 |
 
-**Read:** the combined detector does not beat the best individual on the current mock dataset. The aggregator math works correctly (see `tests/test_aggregator.py`), but with only ~22 training sessions per detector for the isotonic calibrators *and* a mock-data legit baseline that doesn't represent real gameplay, the per-detector probability estimates are noisy and the combined score gets dragged around by whichever detectors over-fire. The real value of the aggregator is demonstrated in **streaming mode** — see [docs/STREAMING.md](STREAMING.md) for the live demo where the LSTM-AE chunk signal visibly contributes to the risk score in real time. The combined session-level AUC is expected to improve once real GTA recordings replace the mock legit baseline.
+**Read:** the thesis holds on real data. The **chunk-level LSTM-AE is the only detector that decisively beats chance on aimbot (0.79)** and is strongest on triggerbot (0.93) — exactly the cheats whose signal lives in short bursts the hand-crafted window features average away (classical detectors stay at ~0.50 for aimbot). Macro is the hardest (0.60): its periodic-click signature is partly visible to `keystroke_periodicity` (OneClassSVM 0.63) but subtle to the autoencoder. See `reports/figures/phase4_chunk_detection.png` for the per-chunk error distributions behind these AUCs.
+
+The **Combined (aggregator) row is *below* chance for aimbot (0.42)** — it does *not* beat the best individual detector. The aggregator math is correct (`tests/test_aggregator.py`), but it combines *session-level* detector scores, and on real data those are near-chance (session-p95 ≈ 0.50, classical ≈ 0.50): a sparse cheat touches a minority of a session's chunks, and the isotonic calibrators are fit on only 18 legit sessions. Combining near-chance signals over a tiny calibration set is worse than just trusting the chunk-level detector. **The discriminative power is at the chunk level, not in the session-level combination** — recalibrating the aggregator (or aggregating the chunk signal directly) is tracked as Phase 4.1. See [docs/STREAMING.md](STREAMING.md) for the full write-up + the normalisation bug fixed this round.
+
+<details><summary>Historical: same benchmark on the old mock dataset (kept for comparison)</summary>
+
+| Detector | aimbot | macro | triggerbot |
+|---|---|---|---|
+| OneClassSVM | 0.53 | 0.68 | 0.87 |
+| LSTMAutoencoder (chunk) | 0.78 | 0.70 | 0.96 |
+| Combined (Phase 4) | 0.41 | 0.66 | 0.56 |
+
+The mock numbers looked *higher* on triggerbot/macro because mock "legit" (idle desktop mouse) is trivially distinguishable from injected cheats; real gameplay is a harder, more honest baseline.
+</details>
 
 ## What closes the gap
 
 | Phase | What it adds | Closes which gap | Status |
 |---|---|---|---|
 | Phase 1 — Trajectory & temporal features | `mouse_curvature_*`, `path_efficiency`, `direction_changes_per_sec`, `click_reaction_mean`, `inter_click_movement`, `keystroke_periodicity` + per-session aggregation | Magnitude-only features → geometric features; per-window evaluation → per-session evaluation | ✅ done — triggerbot 0.87, macro 0.68 |
-| Phase 2 — LSTM autoencoder | Sequence model on raw events, chunk-level scoring | Aimbot detection (window aggregation can't capture the 150 ms snap) | ✅ done — aimbot chunk AUC 0.78, triggerbot chunk AUC 0.96 |
-| Phase 4 — Bayesian session aggregator + streaming | Naive-Bayes log-odds combination, WebSocket API, live dashboard | Single-detector session aggregation diluting the cheat signal | ✅ done — infrastructure end-to-end; absolute AUC numbers limited by mock-data legit baseline (see below) |
+| Phase 2 — LSTM autoencoder | Sequence model on raw events, chunk-level scoring | Aimbot detection (window aggregation can't capture the 150 ms snap) | ✅ done — **real-data** aimbot chunk AUC 0.79, triggerbot 0.93 |
+| Phase 4 — Bayesian session aggregator + streaming | Naive-Bayes log-odds combination, WebSocket API, live dashboard | Single-detector session aggregation diluting the cheat signal | ⚠️ infrastructure done; combined session-level score saturates on real data → recalibration is **Phase 4.1** |
 
-Phase 2 added the LSTM autoencoder (see [docs/LSTM_AE.md](LSTM_AE.md)). At the **chunk level** it reaches AUC 0.78 on aimbot, 0.96 on triggerbot — the model clearly learns to flag short cheat segments. At the **session level**, however, single-detector aggregation underperforms; the cheat signal exists in a handful of chunks but a percentile aggregator across hundreds of chunks dilutes it. The combination of chunk-level LSTM-AE + window-level classical detectors via Phase 4's Bayesian aggregator is the path to robust session-level decisions.
+Phase 2 added the LSTM autoencoder (see [docs/LSTM_AE.md](LSTM_AE.md)). At the **chunk level** it reaches AUC 0.79 on aimbot, 0.93 on triggerbot *on real data* — the model clearly learns to flag short cheat segments. At the **session level**, however, single-detector aggregation underperforms (≈ 0.50); the cheat signal exists in a handful of chunks but a percentile aggregator across hundreds of chunks dilutes it. Combining the chunk-level LSTM-AE signal directly (rather than per-session detector maxima) is the open Phase 4.1 problem.
 
 ---
 

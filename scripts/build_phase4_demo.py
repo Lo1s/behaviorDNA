@@ -1,24 +1,29 @@
 """
 scripts/build_phase4_demo.py
 ============================
-Render the Phase 4 demo artifacts (PNG + animated GIF) **programmatically**.
+Build the Phase-4 detection figure: **per-chunk LSTM-AE reconstruction error,
+legit chunks vs injected-cheat chunks**, one panel per cheat type.
 
-Picks a session from ``data/raw/`` (or the path given on the command line),
-injects a synthetic aimbot at a configured timestamp, drives the full
-streaming pipeline offline, then renders the risk-score timeline as:
+Why this figure (and not a live risk timeline): the chunk-level LSTM-AE is a
+*between-population* detector — it separates legit behaviour chunks from cheat
+chunks (the headline benchmark metric, ROC AUC ≈ 0.79 aimbot / 0.93 triggerbot
+/ 0.60 macro on real GTA data). It does **not** localise *when* sparse injected
+cheating starts inside one session, so a single-session "risk over time" replay
+shows nothing and would overclaim. The session-level Bayesian aggregator that
+would turn this into a live score saturates on the current 18-session
+calibration set (see docs/STREAMING.md → Phase 4.1). This figure shows the
+honest, reproducible signal: the reconstruction-error distributions the model
+actually learnt to separate.
 
-- ``reports/figures/phase4_live_replay.png`` — static annotated line plot
-- ``reports/figures/phase4_live_demo.gif``    — animated growing timeline
+Reads ``data/synthetic/`` (produced by ``pipeline.adversarial.generate_dataset``)
+and the persisted LSTM-AE in ``models/``.
 
-Both figures share the same data, so they always tell the same story.
+Output:
+    reports/figures/phase4_chunk_detection.png
 
 Usage:
     python -m scripts.build_phase4_demo
-    python -m scripts.build_phase4_demo --session data/raw/<file>.json --inject-at 30 --cheat aimbot
-
-Dependencies: matplotlib + Pillow (already in requirements.txt via streamlit).
-No screen capture, no manual editing — re-runnable against any session or
-model checkpoint.
+    python -m scripts.build_phase4_demo --synthetic-dir data/synthetic --out <path>
 """
 
 from __future__ import annotations
@@ -29,218 +34,167 @@ import logging
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.animation import FuncAnimation, PillowWriter
+import matplotlib
 
-from pipeline.inference.streaming import build_stream_state
-from scripts.replay_session import _maybe_inject_cheat, replay_offline
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 
 log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
+SYNTHETIC_DIR = ROOT / "data" / "synthetic"
+MODELS_DIR = ROOT / "models"
 FIGURES_DIR = ROOT / "reports" / "figures"
-# Default to a session that was held out from LSTM-AE training (in the val
-# split), so the model has never seen this player's exact patterns. Gives a
-# cleaner demo: the risk score stays low through the warm-up, then rises
-# when the synthetic cheat is injected. If this file is missing, the CLI
-# falls back to the first JSON in data/raw/.
-DEFAULT_SESSION = (
-    ROOT / "data" / "raw" / "20260516T053654_hydRa_arc_raiders_7f80d8fa.json"
-)
+
+# Panels left→right, with the colour used for the cheat distribution.
+CHEAT_ORDER = ["aimbot", "triggerbot", "macro"]
+CHEAT_COLOUR = {"aimbot": "#6a4c93", "triggerbot": "#e94560", "macro": "#f5a623"}
+LEGIT_COLOUR = "#4ecca3"
 
 
-# ---------------------------------------------------------------------------
-# Static figure
-# ---------------------------------------------------------------------------
+def _chunk_scores(path: Path, model, stats, chunk_length: int):
+    """Score every non-overlapping chunk of one session.
 
+    Returns ``(scores, is_cheat)`` arrays (one entry per chunk) or ``None`` if
+    the session is shorter than one chunk. ``is_cheat[i]`` is True when chunk i
+    overlaps any ``cheat_segment``.
+    """
+    import torch
 
-def render_static(
-    updates: list[dict],
-    out_path: Path,
-    *,
-    cheat_type: str | None,
-    inject_at_s: float | None,
-    risk_threshold: float = 0.5,
-) -> None:
-    """Render the risk-score timeline + per-detector contributions."""
-    if not updates:
-        log.warning("No updates to render")
-        return
-
-    ts = np.array([u["t"] / 1000.0 for u in updates])
-    risk = np.array([u["session_risk"] for u in updates])
-
-    # Per-detector logit contributions stacked
-    detector_names = sorted({k for u in updates for k in u.get("detector_logits", {})})
-    logits = {
-        name: np.array(
-            [u["detector_logits"].get(name, 0.0) for u in updates], dtype=np.float64
-        )
-        for name in detector_names
-    }
-
-    fig, axes = plt.subplots(
-        2, 1, figsize=(11, 6), sharex=True, gridspec_kw=dict(height_ratios=[2, 1])
+    from pipeline.models.lstm_ae import score_sequences
+    from pipeline.sequences.preprocessing import (
+        apply_normalizer,
+        session_to_event_tensor,
     )
 
-    # Top: risk-score timeline
-    axes[0].plot(ts, risk, color="#e94560", linewidth=2.2, label="combined risk")
-    axes[0].axhline(
-        risk_threshold,
-        color="#8892a4",
-        linestyle="--",
-        linewidth=1.2,
-        label=f"alert threshold = {risk_threshold:.2f}",
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    tensor = session_to_event_tensor(data)
+    if len(tensor) < chunk_length:
+        return None
+    norm = apply_normalizer(tensor, stats)
+    n = len(norm) // chunk_length
+    chunks = np.stack(
+        [norm[i * chunk_length : (i + 1) * chunk_length] for i in range(n)]
     )
-    if cheat_type is not None and inject_at_s is not None:
-        axes[0].axvline(
-            inject_at_s,
-            color="black",
-            linestyle=":",
-            linewidth=1.5,
-            label=f"{cheat_type} injected at t={inject_at_s:.0f}s",
-        )
-    axes[0].set_ylim(-0.02, 1.02)
-    axes[0].set_ylabel("session risk")
-    axes[0].set_title("Phase 4 — live session risk over time")
-    axes[0].legend(loc="upper left", fontsize=9)
-    axes[0].grid(True, alpha=0.3)
 
-    # Bottom: per-detector logit contributions
-    colours = {
-        "IsolationForest": "#4ecca3",
-        "LocalOutlierFactor": "#f5a623",
-        "OneClassSVM": "#6a4c93",
-        "LSTMAutoencoder": "#e94560",
+    is_cheat = np.zeros(n, dtype=bool)
+    segs = data.get("cheat_segments") or []
+    if segs and data.get("events"):
+        times = np.array([ev.get("t", 0.0) for ev in data["events"]])
+        in_seg = np.zeros(len(times), dtype=bool)
+        for a, b in segs:
+            in_seg |= (times >= a) & (times <= b)
+        for i in range(n):
+            is_cheat[i] = in_seg[i * chunk_length : (i + 1) * chunk_length].any()
+
+    scores = score_sequences(
+        model, torch.from_numpy(chunks).float(), batch_size=256, device="auto"
+    )
+    return np.asarray(scores, dtype=np.float64), is_cheat
+
+
+def collect_chunk_scores(synthetic_dir: Path, model, stats, chunk_length: int):
+    """Pool per-chunk scores across every synthetic session.
+
+    Returns ``(legit_pool, cheat_pools)`` where ``legit_pool`` is every chunk
+    that does NOT overlap a cheat segment (from legit files and the clean parts
+    of cheat files), and ``cheat_pools[label]`` is every cheat-overlapping chunk
+    for that cheat type.
+    """
+    legit_pool: list[np.ndarray] = []
+    cheat_pools: dict[str, list[np.ndarray]] = {c: [] for c in CHEAT_ORDER}
+
+    for path in sorted(synthetic_dir.glob("*.json")):
+        with open(path, encoding="utf-8") as f:
+            label = json.load(f).get("cheat_label", "legit")
+        res = _chunk_scores(path, model, stats, chunk_length)
+        if res is None:
+            continue
+        scores, is_cheat = res
+        legit_pool.append(scores[~is_cheat])
+        if label in cheat_pools:
+            cheat_pools[label].append(scores[is_cheat])
+
+    legit = np.concatenate(legit_pool) if legit_pool else np.array([])
+    cheat = {
+        c: (np.concatenate(v) if v else np.array([])) for c, v in cheat_pools.items()
     }
-    for name in detector_names:
-        axes[1].plot(
-            ts,
-            logits[name],
-            label=name,
+    return legit, cheat
+
+
+def render_chunk_detection(legit, cheat_by_type, out_path: Path) -> None:
+    """One density panel per cheat type: legit chunks vs cheat chunks + AUC."""
+    from sklearn.metrics import roc_auc_score
+
+    fig, axes = plt.subplots(1, len(CHEAT_ORDER), figsize=(14, 4.6), sharey=True)
+    if len(CHEAT_ORDER) == 1:
+        axes = [axes]
+
+    for ax, cheat_type in zip(axes, CHEAT_ORDER):
+        cheat = cheat_by_type.get(cheat_type, np.array([]))
+        if len(cheat) == 0 or len(legit) == 0:
+            ax.set_title(f"{cheat_type}\n(no data)")
+            continue
+
+        y = np.r_[np.zeros(len(legit)), np.ones(len(cheat))]
+        s = np.r_[legit, cheat]
+        auc = roc_auc_score(y, s)
+
+        # Clip the x-view to the 98th pct so a few extreme chunks don't crush it.
+        clip = float(np.percentile(s, 98))
+        bins = np.linspace(0, clip, 50)
+        ax.hist(
+            np.clip(legit, 0, clip),
+            bins=bins,
+            density=True,
+            alpha=0.6,
+            color=LEGIT_COLOUR,
+            label=f"legit chunks (n={len(legit)})",
+        )
+        ax.hist(
+            np.clip(cheat, 0, clip),
+            bins=bins,
+            density=True,
+            alpha=0.6,
+            color=CHEAT_COLOUR[cheat_type],
+            label=f"{cheat_type} chunks (n={len(cheat)})",
+        )
+        ax.axvline(np.median(legit), color="#2a7d63", linestyle="--", linewidth=1.2)
+        ax.axvline(
+            np.median(cheat),
+            color=CHEAT_COLOUR[cheat_type],
+            linestyle="--",
             linewidth=1.4,
-            color=colours.get(name, None),
-            alpha=0.85,
         )
-    axes[1].axhline(0, color="grey", linewidth=0.8, alpha=0.5)
-    axes[1].set_ylabel("logit contribution")
-    axes[1].set_xlabel("time (s)")
-    axes[1].legend(loc="upper left", fontsize=8)
-    axes[1].grid(True, alpha=0.3)
+        ax.set_title(f"{cheat_type} — chunk ROC AUC = {auc:.3f}")
+        ax.set_xlabel("LSTM-AE reconstruction error (per 64-event chunk)")
+        ax.legend(fontsize=8, loc="upper right")
+        ax.grid(True, alpha=0.3)
 
-    fig.tight_layout()
+    axes[0].set_ylabel("density")
+    fig.suptitle(
+        "Phase 4 — chunk-level cheat detection on real GTA data\n"
+        "LSTM-AE reconstruction error separates injected-cheat chunks from legit play",
+        fontsize=12,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
     log.info("Wrote %s", out_path)
 
 
-# ---------------------------------------------------------------------------
-# Animated GIF
-# ---------------------------------------------------------------------------
-
-
-def render_gif(
-    updates: list[dict],
-    out_path: Path,
-    *,
-    cheat_type: str | None,
-    inject_at_s: float | None,
-    risk_threshold: float = 0.5,
-    n_frames: int = 40,
-    fps: int = 8,
-) -> None:
-    """Same data as render_static, but as a growing animated timeline."""
-    if not updates:
-        return
-
-    ts = np.array([u["t"] / 1000.0 for u in updates])
-    risk = np.array([u["session_risk"] for u in updates])
-
-    # Subsample to ``n_frames`` evenly distributed snapshots
-    if len(ts) > n_frames:
-        idx = np.linspace(0, len(ts) - 1, n_frames).astype(int)
-        ts = ts[idx]
-        risk = risk[idx]
-
-    fig, ax = plt.subplots(figsize=(10, 4.2))
-    (line,) = ax.plot([], [], color="#e94560", linewidth=2.2)
-    ax.axhline(
-        risk_threshold,
-        color="#8892a4",
-        linestyle="--",
-        linewidth=1.2,
-        label=f"alert threshold = {risk_threshold:.2f}",
-    )
-    if cheat_type is not None and inject_at_s is not None:
-        ax.axvline(
-            inject_at_s,
-            color="black",
-            linestyle=":",
-            linewidth=1.5,
-            label=f"{cheat_type} injected at t={inject_at_s:.0f}s",
-        )
-
-    ax.set_xlim(ts.min(), ts.max() if ts.max() > ts.min() else ts.min() + 1)
-    ax.set_ylim(-0.02, 1.02)
-    ax.set_xlabel("time (s)")
-    ax.set_ylabel("session risk")
-    ax.set_title("BehaviorDNA — live cheat-risk score (mock data)")
-    ax.legend(loc="upper left", fontsize=9)
-    ax.grid(True, alpha=0.3)
-
-    def init():
-        line.set_data([], [])
-        return (line,)
-
-    def update_frame(i: int):
-        line.set_data(ts[: i + 1], risk[: i + 1])
-        return (line,)
-
-    anim = FuncAnimation(
-        fig,
-        update_frame,
-        init_func=init,
-        frames=len(ts),
-        interval=1000 / fps,
-        blit=False,
-    )
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    anim.save(out_path, writer=PillowWriter(fps=fps))
-    plt.close(fig)
-    log.info("Wrote %s", out_path)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Build the Phase 4 demo PNG + GIF")
-    parser.add_argument("--session", type=Path, default=DEFAULT_SESSION)
-    parser.add_argument(
-        "--cheat",
-        choices=["aimbot", "triggerbot", "macro"],
-        default="aimbot",
+    parser = argparse.ArgumentParser(
+        description="Build the Phase-4 chunk-level cheat-detection figure"
     )
+    parser.add_argument("--synthetic-dir", type=Path, default=SYNTHETIC_DIR)
+    parser.add_argument("--model-dir", type=Path, default=MODELS_DIR)
     parser.add_argument(
-        "--inject-at",
-        type=float,
-        default=30.0,
-        help="When (seconds) to inject the cheat (default 30)",
+        "--out", type=Path, default=FIGURES_DIR / "phase4_chunk_detection.png"
     )
-    parser.add_argument(
-        "--png",
-        type=Path,
-        default=FIGURES_DIR / "phase4_live_replay.png",
-    )
-    parser.add_argument(
-        "--gif",
-        type=Path,
-        default=FIGURES_DIR / "phase4_live_demo.gif",
-    )
-    parser.add_argument("--threshold", type=float, default=0.5)
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -249,57 +203,29 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stdout,
     )
 
-    if not args.session.exists():
-        log.warning(
-            "Session not found at %s — falling back to the first JSON in data/raw/",
-            args.session,
+    from pipeline.models.lstm_ae import LSTM_AE_WEIGHTS_NAME, load_lstm_ae
+
+    if not (args.model_dir / LSTM_AE_WEIGHTS_NAME).exists():
+        log.error(
+            "No LSTM-AE artifact at %s — run `python -m scripts.train_lstm_ae` first",
+            args.model_dir,
         )
-        candidates = sorted((ROOT / "data" / "raw").glob("*.json"))
-        if not candidates:
-            log.error("No JSON files in data/raw/")
-            return 1
-        args.session = candidates[0]
-        log.info("Using fallback session %s", args.session.name)
+        return 1
+    model, stats, meta = load_lstm_ae(args.model_dir, device="auto")
+    chunk_length = int((meta.get("config") or {}).get("chunk_length", 64))
+    log.info("Loaded LSTM-AE (chunk_length=%d)", chunk_length)
 
-    with open(args.session, encoding="utf-8") as f:
-        session = json.load(f)
-    log.info(
-        "Loaded session: %s  (%d events)",
-        args.session.name,
-        len(session.get("events", [])),
+    legit, cheat_by_type = collect_chunk_scores(
+        args.synthetic_dir, model, stats, chunk_length
     )
+    if len(legit) == 0:
+        log.error("No legit chunks scored — is %s populated?", args.synthetic_dir)
+        return 1
+    for c in CHEAT_ORDER:
+        n = len(cheat_by_type.get(c, []))
+        log.info("  %s: %d cheat chunks  (legit pool: %d)", c, n, len(legit))
 
-    session = _maybe_inject_cheat(session, args.cheat, args.inject_at)
-    log.info(
-        "Injected %s at t=%.1fs  → %d cheat segments",
-        args.cheat,
-        args.inject_at,
-        len(session.get("cheat_segments", [])),
-    )
-
-    log.info("Building streaming engine (this is the slow part — ~45 s)…")
-    state = build_stream_state()
-    log.info("Replaying session through the engine…")
-    updates = replay_offline(session, state=state)
-    log.info("Captured %d ScoreUpdate snapshots", len(updates))
-
-    args.png.parent.mkdir(parents=True, exist_ok=True)
-    args.gif.parent.mkdir(parents=True, exist_ok=True)
-
-    render_static(
-        updates,
-        args.png,
-        cheat_type=args.cheat,
-        inject_at_s=args.inject_at,
-        risk_threshold=args.threshold,
-    )
-    render_gif(
-        updates,
-        args.gif,
-        cheat_type=args.cheat,
-        inject_at_s=args.inject_at,
-        risk_threshold=args.threshold,
-    )
+    render_chunk_detection(legit, cheat_by_type, args.out)
     return 0
 
 

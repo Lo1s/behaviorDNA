@@ -135,6 +135,14 @@ def replay_offline(
         from pipeline.inference.streaming import build_stream_state
 
         state = build_stream_state()
+    # Apply this session's hardware normalisation (sens/DPI + polling rate) so
+    # streamed features match how the detectors were trained. Without this the
+    # engine uses no-op defaults and mis-scales any non-default-hardware session.
+    state.configure_for_session(
+        sensitivity=session.get("sensitivity"),
+        dpi=session.get("dpi"),
+        polling_rate=session.get("polling_rate"),
+    )
     updates: list[dict] = []
     out_f = open(out_path, "w", encoding="utf-8") if out_path else None
     try:

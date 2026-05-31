@@ -8,11 +8,11 @@
 
 ---
 
-![BehaviorDNA live demo](reports/figures/phase4_live_demo.gif)
+![BehaviorDNA chunk-level cheat detection](reports/figures/phase4_chunk_detection.png)
 
-*Live cheat-risk score over time as a recorded session is streamed through the full detector stack (4 classical detectors + LSTM autoencoder + Bayesian aggregator). A synthetic aimbot is injected at t=10s — the score crosses the alert threshold as soon as enough independent evidence accumulates. Reproduce with `python -m scripts.build_phase4_demo`. See [docs/STREAMING.md](docs/STREAMING.md).*
+*Chunk-level cheat detection on **18 real GTA sessions** (3 players). The LSTM autoencoder's reconstruction error separates injected-cheat chunks (coloured) from legit-behaviour chunks (green): triggerbot ROC AUC 0.94, aimbot 0.80, macro 0.61 — while hand-crafted window features stay at chance for aimbot. Reproduce with `python -m scripts.build_phase4_demo`. See [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) and [docs/STREAMING.md](docs/STREAMING.md).*
 
-> **Mock-data caveat.** All current numbers use mouse-on-desktop mock recordings, not real gameplay. The pipeline is data-agnostic; real GTA recordings from 3 players are pending.
+> **Data status.** Headline numbers are now measured on real GTA gameplay (18 sessions, 3 players). The chunk-level detector works on real data; the *session-level* live-risk aggregator saturates on the current 18-session calibration set and is being reworked (Phase 4.1 — see [docs/STREAMING.md](docs/STREAMING.md#what-works-and-what-doesnt-honest)).
 
 ---
 
@@ -192,9 +192,9 @@ A 5-phase roadmap targeting anti-cheat ML/AI roles is tracked in detail in [docs
 |---|---|---|
 | 1. [Trajectory & temporal features](docs/ROADMAP.md#phase-1--trajectory--temporal-features) | 7 anti-cheat-targeted window features | ✅ Done — triggerbot AUC 0.50 → 0.87, macro 0.55 → 0.68 |
 | 1.5. [Feature expansion (backlog)](docs/ROADMAP.md#phase-15--feature-expansion-optional) | Further window-feature ideas | 📝 Backlog |
-| 2. [LSTM autoencoder](docs/LSTM_AE.md) | Deep-learning sequence model on raw events | ✅ Done — aimbot chunk AUC 0.53 → **0.78**, triggerbot chunk 0.96 |
+| 2. [LSTM autoencoder](docs/LSTM_AE.md) | Deep-learning sequence model on raw events | ✅ Done — real-data aimbot chunk AUC **0.79**, triggerbot **0.93** |
 | 3. [Adversarial bots](docs/ADVERSARIAL.md) | Synthetic cheat generator + detection benchmark | ✅ Done — 90 labelled hybrid sessions, full ROC grid |
-| 4. [Streaming + risk aggregation](docs/STREAMING.md) | Naive-Bayes log-odds aggregator + WebSocket API + live dashboard tab | ✅ Done — infrastructure end-to-end (mock-data baseline; see [doc](docs/STREAMING.md#what-works-and-what-doesnt-honest)) |
+| 4. [Streaming + risk aggregation](docs/STREAMING.md) | Naive-Bayes log-odds aggregator + WebSocket API + live dashboard tab | ⚠️ Infra end-to-end; session-level aggregator saturates on real data → Phase 4.1 (see [doc](docs/STREAMING.md#what-works-and-what-doesnt-honest)) |
 | 4.1. [Live recorder + multi-user backlog](docs/ROADMAP.md#phase-41--live-recorder--multi-user-backlog) | Phase 4 follow-ups | 📝 Backlog |
 | 5. [Statistical rigor & MLOps](docs/ROADMAP.md#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ⬜ Not started |
 
@@ -208,7 +208,7 @@ Legend: ✅ Done · 🚧 In progress · ⬜ Not started · 📝 Backlog
 - [x] **Behavioral differentiation analysis** — deep dive into how cheater/bot trajectories differ from legit behavior using CS2CD and CaptchaSolve30k (`notebooks/07_behavioral_differentiation.ipynb`)
 - [x] **Adversarial bot generation + detection benchmark** — synthetic aimbot/triggerbot/macro generator, 90 labelled hybrid sessions, per-detector ROC grid (`notebooks/10_adversarial_bots.ipynb`, `docs/ADVERSARIAL.md`)
 - [x] **Trajectory & temporal features** — 7 anti-cheat-targeted features (curvature, path efficiency, click reaction time, keystroke periodicity, …) closing the triggerbot + macro detection gap (`notebooks/08_trajectory_features.ipynb`, `docs/FEATURES.md`)
-- [x] **LSTM autoencoder on raw event sequences** — PyTorch sequence model, GPU-accelerated (RTX 3070), solves the aimbot detection gap at the chunk level (AUC 0.78). 11-step tutorial in `notebooks/09_lstm_autoencoder.ipynb`; full architecture write-up in `docs/LSTM_AE.md`
+- [x] **LSTM autoencoder on raw event sequences** — PyTorch sequence model, GPU-accelerated (RTX 3070), solves the aimbot detection gap at the chunk level (real-data AUC 0.79). 11-step tutorial in `notebooks/09_lstm_autoencoder.ipynb`; full architecture write-up in `docs/LSTM_AE.md`
 - [x] **Streaming inference + Bayesian session aggregation** — `/stream` WebSocket endpoint, `pipeline/inference/aggregator.py` (Naive-Bayes log-odds + isotonic calibration), `scripts/replay_session.py` with synthetic-cheat injection, "📡 Live Session" dashboard tab, reproducible PNG + GIF demo artifacts via `scripts/build_phase4_demo.py`. Full architecture in [docs/STREAMING.md](docs/STREAMING.md).
 - [ ] **Calibration + SHAP + drift monitor + MLflow registry** — production polish (Phase 5)
 - [x] **Real-time dashboard** — four-tab Streamlit app in `dashboard/app.py`

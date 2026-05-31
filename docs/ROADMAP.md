@@ -21,8 +21,8 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 | 1.5. [Feature expansion (optional)](#phase-15--feature-expansion-optional) | Backlog of further feature ideas, revisited after Phase 5 | 📝 Backlog |
 | 2. [LSTM autoencoder](#phase-2--lstm-autoencoder-for-anomaly-detection) | Deep-learning sequence model | ✅ Done |
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
-| 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Bayesian multi-detector aggregator + WebSocket API + live dashboard | ✅ Done |
-| 4.1. [Live recorder + multi-user backlog](#phase-41--live-recorder--multi-user-backlog) | Phase 4 follow-ups (live recorder, WS auth, MLflow logging) | 📝 Backlog |
+| 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Bayesian multi-detector aggregator + WebSocket API + live dashboard | ✅ Infra done; combined risk saturates on real data → 4.1 |
+| 4.1. [Live recorder + aggregator redesign](#phase-41--live-recorder--multi-user-backlog) | Aggregator redesign (real data), live recorder, WS auth | 📝 Backlog |
 | 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | 🚧 5c drift done; rest not started |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
@@ -159,7 +159,7 @@ Chunk-level AUC ≥ 0.75 success criterion met for aimbot (0.78). Session-level 
 - [x] `docs/STREAMING.md` — architecture + plain-English aggregator math + worked example
 - [x] Demo GIF + PNG embedded in `docs/STREAMING.md` and the README hero
 
-**Key results (mock data):** The aggregator math is correct (all 15 unit tests covering monotonicity, NaN handling, log-odds combination, explain components pass) and the streaming pipeline is end-to-end (event in → `ScoreUpdate` out with per-detector contributions). **However**, with the current mock-data legit baseline, classical detectors over-fire on any active session, so the combined session-level AUC does not exceed the best individual detector. The proof point at this stage is the working infrastructure + visible chunk-level signal from the LSTM-AE in the dashboard panel. Re-running against real GTA recordings (pending) should tighten the absolute numbers without code changes.
+**Key results (real data, 2026-05-30):** The aggregator math is correct (15 unit tests) and the streaming pipeline is end-to-end. On 18 real GTA sessions the **chunk-level LSTM-AE detector works** (aimbot AUC 0.79, triggerbot 0.93 — see `docs/ADVERSARIAL.md`). **However**, the *session-level combined risk* still does not beat the best individual detector: its session-level inputs are near-chance (≈ 0.50) and the isotonic calibrators are fit on only 18 legit sessions, so the combination saturates. Real data also exposed a **normalisation bug** (the streaming engine never applied per-session sens/DPI + polling-rate norm) — **fixed this round** via `SessionStreamState.configure_for_session`. Recalibrating / redesigning the aggregator is **Phase 4.1** (below).
 
 ---
 
@@ -172,7 +172,7 @@ Follow-ups to Phase 4 that were intentionally **not** in scope this session. Mov
 - **Recorder ↔ API networking from Windows** — when the recorder runs on the Windows host and the API runs in WSL, the WS URL `ws://localhost:8000/stream` may or may not resolve depending on `uvicorn --host` flags. Documented in `docs/STREAMING.md`.
 - **MLflow logging of streaming sessions** — log each replayed session's score timeline as an MLflow run for later analysis. Defer to Phase 5 (statistical rigor & MLOps).
 - **Persistent session storage** — saving recent live sessions for replay/audit. Production concern, deferred.
-- **Aggregator retraining on real GTA recordings** — once real gameplay data lands, re-train the isotonic calibrators on a held-out cheat-vs-legit split. This is the main path to a meaningful "combined > best individual" session-level result.
+- **Aggregator redesign (real data showed it saturates)** — on 18 real sessions the session-level combined risk saturates: its inputs (`LSTMAutoencoder/session`, classical session detectors) are ≈ 0.50 AUC and the isotonic calibrators are fit on only 18 legit sessions, so combining near-chance signals over a tiny set pushes even legit sessions to high risk. The discriminative power is at the **chunk level** (AUC 0.79–0.93). Fix options: (a) aggregate the **chunk-level** LSTM signal directly into the live score rather than per-session detector maxima; (b) recalibrate once there are far more sessions; (c) a per-chunk-labelled within-session eval so the live score can localise *when* cheating starts (the current detector is between-session only). The streaming **normalisation bug is already fixed** (`configure_for_session`).
 
 ---
 
@@ -186,15 +186,20 @@ Data-independent work shipped ahead of the real GTA recordings so their arrival 
 - [x] **Dependency fixes** — `websockets` (replay WS client) + `shap` (staged for 5a) added to `requirements.txt`.
 - [x] **Recording Arrival Runbook** — step-by-step for when data lands, in `docs/MONITORING.md`.
 
-## First real recordings — in (first pass done; full runbook pending)
+## First real recordings — full runbook done (2026-05-30)
 
-The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8, hydra 5), all 1000 Hz, mixed DPI (800 / 1600). First-pass processing complete:
+The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8, hydra 5), all 1000 Hz, mixed DPI (800 / 1600). Both the first pass and the full Recording Arrival Runbook are complete:
 
 - [x] **QC gate** — all 18 PASS (`python -m scripts.validate_recordings --dir data/raw`).
-- [x] **Player-stratified split** — `pipeline/features/split.py` rewritten from `GroupShuffleSplit` to a per-player whole-session holdout, so every identity appears in train/val/test (essential at N=18; a random split could drop a player from test). Real-data identification: **test acc 0.853** (f1 0.862), now a trustworthy number.
+- [x] **Player-stratified split** — `pipeline/features/split.py` rewritten from `GroupShuffleSplit` to a per-player whole-session holdout, so every identity appears in train/val/test (essential at N=18; a random split could drop a player from test). Real-data identification: **test acc 0.853** (f1 0.862); a same-hardware-only check (hydra vs dninix) lands at 0.750, exposing a cross-hardware confound from shotik's different rig.
 - [x] **Mock→real drift quantified** — `reports/drift_mock_vs_real.csv`: **20 / 25 features significant**, led by `wasd_rhythm` (PSI 9.4), `speed/accel_*` (6.6–8.0), `event_rate` (5.1). Empirical proof the mock baseline was unrepresentative.
+- [x] **LSTM-AE retrained on real legit data** (`scripts.train_lstm_ae`) — 1.35M events; persisted to `models/lstm_ae.pt`.
+- [x] **Adversarial benchmark re-run on real data** — chunk-level LSTM-AE: aimbot 0.79 / triggerbot 0.93 / macro 0.60; classical detectors at chance for aimbot. Full table in `docs/ADVERSARIAL.md`.
+- [x] **Phase-4 demo regenerated** — pivoted from the (saturated) live risk-timeline to an honest **chunk-detection distribution** figure (`reports/figures/phase4_chunk_detection.png`); the README hero now shows it.
+- [x] **Streaming normalisation bug fixed** — `SessionStreamState.configure_for_session` (sens/DPI + polling-rate); previously the engine mis-scaled real-hardware sessions.
+- [x] **Mock-data caveats updated** across `docs/ADVERSARIAL.md`, `docs/STREAMING.md`, `docs/LSTM_AE.md`, `README.md`, `CLAUDE.md`.
 
-**Deferred to the full Recording Arrival Runbook (next session):** retrain LSTM-AE on real legit data (`scripts.train_lstm_ae`), re-run `pipeline.adversarial.benchmark`, regenerate the Phase-4 demo (`scripts.build_phase4_demo`), and remove/loosen the mock-data caveats across `docs/ADVERSARIAL.md`, `docs/LSTM_AE.md`, `docs/STREAMING.md`, `README.md`, `CLAUDE.md` (design-choice 5c).
+**Open follow-up:** the session-level live-risk aggregator saturates on real data → tracked in [Phase 4.1](#phase-41--live-recorder--multi-user-backlog).
 
 ## Tooling backlog
 

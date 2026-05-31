@@ -2,7 +2,7 @@
 
 > Phase 2 of the [BehaviorDNA roadmap](ROADMAP.md). Unsupervised sequence model that operates on the raw event stream and solves the Phase 1 aimbot detection gap.
 
-> **Data caveat.** All numbers in this document are measured on the **current 15-session mock dataset** (mouse-moving-on-desktop + idle keystrokes, not actual in-game play). Real GTA recordings from 3 players are pending. Once they land, retraining will give the model real aiming dynamics to learn against — the absolute AUC numbers below are baselines that should tighten meaningfully with real data. The math, architecture, and infrastructure are not data-dependent.
+> **Data status (2026-05-30).** Numbers below are now measured on **18 real GTA sessions** (3 players, 1.35M events). Retrain via `python -m scripts.train_lstm_ae` (persisted to `models/lstm_ae.pt`). Real-data chunk-level AUC: aimbot 0.79, triggerbot 0.93, macro 0.60. The chunk-level result is the headline; session-level aggregation stays near chance (see `docs/STREAMING.md` → Phase 4.1).
 
 ## Motivation
 
@@ -73,20 +73,22 @@ Per-chunk reconstruction MSE. Each chunk is labelled cheat-positive if it overla
 
 This is **what the model actually learnt to flag**. Headline numbers:
 
-| Cheat | Phase 1 best AUC | Phase 2 LSTM-AE chunk AUC |
+| Cheat | Classical best AUC (real) | LSTM-AE chunk AUC (real) |
 |---|---|---|
-| Aimbot | 0.53 | **0.78** |
-| Macro | 0.68 | 0.70 |
-| Triggerbot | 0.87 | **0.96** |
+| Aimbot | 0.58 | **0.79** |
+| Macro | 0.63 | 0.60 |
+| Triggerbot | 0.76 | **0.93** |
+
+*(real GTA data, 2026-05-30; the `reports/figures/phase4_chunk_detection.png` figure shows the per-chunk error distributions behind these.)*
 
 ### Session-level (LSTMAutoencoder/session)
 
 Each session's chunk scores aggregated to their 95th percentile, then AUC computed across sessions.
 
-| Cheat | LSTM-AE session AUC |
+| Cheat | LSTM-AE session AUC (real) |
 |---|---|
-| Aimbot | ~0.50 |
-| Macro | ~0.58 |
+| Aimbot | ~0.51 |
+| Macro | ~0.51 |
 | Triggerbot | ~0.51 |
 
 This is **noticeably worse than chunk-level** and worse than the classical detectors at session level. Why:

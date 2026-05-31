@@ -2,13 +2,13 @@
 
 > Phase 4 of the [BehaviorDNA roadmap](ROADMAP.md). Combines every detector built in Phases 1–3 into one calibrated session-level risk score and exposes it as a live WebSocket-driven dashboard.
 
-> **Mock-data caveat.** All numbers, plots, and dashboard demos in this doc are measured against the current 15-session mock dataset (mouse-on-desktop, not real gameplay). Real GTA recordings from 3 players are pending. The infrastructure is data-independent — absolute risk magnitudes will tighten once real gameplay lands.
+> **Real-data status (2026-05-30).** Numbers are now measured on **18 real GTA sessions** (3 players). The headline detector — the chunk-level LSTM-AE — works on real data (ROC AUC 0.80 aimbot / 0.94 triggerbot / 0.61 macro, see the figure below and `docs/ADVERSARIAL.md`). The **session-level Bayesian aggregator does *not* yet produce a usable live risk score on real data** — see [What works and what doesn't](#what-works-and-what-doesnt-honest) for the honest write-up and the Phase 4.1 fix.
 
 ---
 
-![Phase 4 live demo](../reports/figures/phase4_live_demo.gif)
+![Phase 4 chunk-level cheat detection](../reports/figures/phase4_chunk_detection.png)
 
-*Live cheat-risk timeline. A synthetic aimbot is injected at t=10s. The LSTM-AE chunk signal is active throughout, but the combined risk doesn't cross the alert threshold until t=30s when the first classical-detector window completes and adds its evidence. The aggregator combines four independent signals via Naive-Bayes log-odds.*
+*Chunk-level cheat detection on real GTA data. Each panel pools every 64-event chunk across all 18 sessions; the LSTM-AE reconstruction error of legit-behaviour chunks (green) sits near zero, while injected-cheat chunks (coloured) shift right. Triggerbot is the most separable (AUC 0.94 — rapid-fire clicks reconstruct very poorly), macro the least (0.61). This is a **between-population** detector: it separates cheat chunks from legit chunks; it does not localise when sparse cheating starts inside one session.*
 
 ---
 
@@ -39,7 +39,7 @@ events ──►   ─┤    SessionStreamState (pipeline/inference)           �
                              │                          ▼
                 ┌────────────┴──────────┐    ┌──────────────────────┐
                 │ api/streaming.py      │    │ Dashboard "Live"     │
-                │   /stream WebSocket   │    │ tab + GIF generator  │
+                │   /stream WebSocket   │    │ tab (replay_offline) │
                 └───────────────────────┘    └──────────────────────┘
                           ▲
                           │
@@ -160,12 +160,10 @@ python -m scripts.replay_session data/raw/<file>.json \
 ### Programmatic demo
 
 ```bash
-python -m scripts.build_phase4_demo \
-    --cheat aimbot \
-    --inject-at 10
+python -m scripts.build_phase4_demo
 ```
 
-Produces `reports/figures/phase4_live_replay.png` (static) and `reports/figures/phase4_live_demo.gif` (animated).
+Produces `reports/figures/phase4_chunk_detection.png` — the per-cheat-type chunk-level reconstruction-error distributions (legit vs cheat) shown at the top of this doc. Reads `data/synthetic/` + the persisted `models/lstm_ae.pt`.
 
 ---
 
@@ -178,29 +176,33 @@ Produces `reports/figures/phase4_live_replay.png` (static) and `reports/figures/
 | `api/streaming.py` | `/stream` WebSocket endpoint, mounted from `api/main.py` |
 | `scripts/train_lstm_ae.py` | Persists `models/lstm_ae.pt` + `models/lstm_ae_meta.json` |
 | `scripts/replay_session.py` | CLI replay (WebSocket or offline) with optional cheat injection |
-| `scripts/build_phase4_demo.py` | Generates the PNG + GIF demo artifacts |
+| `scripts/build_phase4_demo.py` | Generates `phase4_chunk_detection.png` (per-cheat chunk-error distributions) |
 | `dashboard/app.py` | 📡 Live Session tab |
 | `tests/test_aggregator.py` | 15 tests covering calibrator monotonicity, NaN handling, log-odds combination, explain output |
 | `tests/test_streaming.py` | 14 tests covering state machine + WebSocket via FastAPI TestClient |
 | `tests/test_replay_session.py` | 4 tests for cheat injection + offline replay JSONL output |
 
-187 unit tests total. The streaming pipeline runs entirely on the RTX 3070 via the persisted LSTM-AE artifact and falls back to CPU automatically.
+The full suite (234 tests) passes. The streaming pipeline runs entirely on the RTX 3070 via the persisted LSTM-AE artifact and falls back to CPU automatically.
 
 ---
 
 ## What works and what doesn't (honest)
 
-**What works**
+**What works (on real data)**
 
+- The **chunk-level LSTM-AE detector** — the headline. It separates injected-cheat chunks from legit chunks at ROC AUC 0.80 / 0.94 / 0.61 (aimbot / triggerbot / macro) on 18 real GTA sessions. See the figure at the top and `docs/ADVERSARIAL.md`.
 - The math: per-detector calibration is monotonic, the log-odds sum behaves correctly under independence, the prior pulls posterior risk in the right direction (verified in `tests/test_aggregator.py`).
-- The plumbing: live WebSocket events produce a session_risk in real time, the dashboard renders it as a growing timeline, the GIF demo is fully reproducible.
-- Per-detector explainability: `RiskAggregator.explain()` returns per-detector logit contributions, surfaced in the dashboard as a separate panel and visible in the GIF's bottom plot.
+- The plumbing: live WebSocket events produce a session_risk in real time; the dashboard renders it as a growing timeline; `replay_offline()` drives the same engine in-process.
 
-**What doesn't (yet)**
+**What doesn't (yet) — the honest part**
 
-- Combined session-level AUC. With the current mock-data legit baseline, every classical detector over-fires on any "active" session, so the calibrated probabilities sit near 0.7–0.9 even for legit replay. The combined risk is dominated by these over-firing detectors, not by the chunk-level LSTM-AE signal. We expect this to flip once real gameplay recordings replace the mock baseline.
+Two issues surfaced the moment real (mixed-hardware) data replaced the mock baseline:
 
-The honest current numbers (stratified 50/50 split, mock data) are in `docs/ADVERSARIAL.md`. The streaming demo's value at this stage is the **infrastructure proof** — it shows the math, transport, calibration, dashboard, and aggregator all working end-to-end. Real-data validation comes once the GTA recordings land.
+1. **Normalisation gap in the streaming engine — *fixed* this round.** `SessionStreamState` never applied the session's sens/DPI (`norm_factor`) or polling-rate (`rate_norm`) normalisation — `build_stream_state()` only set no-op defaults (1.0), and `_flush_chunk` hardcoded `sensitivity=1.0, dpi=800`. On mock data (which *was* 1.0/800/1000 Hz) this was accidentally correct; on real hardware (e.g. DPI 1600) it mis-scaled both the classical window features and the LSTM chunk tensor, so *everything* looked anomalous. Fixed via `SessionStreamState.configure_for_session(...)`, now called from `replay_offline`.
+
+2. **The session-level aggregator saturates — *Phase 4.1*.** Even after the normalisation fix, the combined `session_risk` is not usable on real data. The session-level inputs to the aggregator are near-chance (`LSTMAutoencoder/session` AUC ≈ 0.50; classical session detectors ≈ 0.50; combined ≈ 0.42 for aimbot), because a sparse cheat affects only a minority of a session's chunks/windows and the legit baseline's natural variance tail overlaps it. The isotonic calibrators are then fit on only **18 legit sessions**, so combining near-chance signals over a tiny calibration set produces a degenerate mapping that pushes even legit sessions to high risk. **The discriminative power lives at the chunk level, not in the session-level combination.**
+
+**Takeaway.** The chunk-level detector is the real result; the live combined-risk score needs the Phase 4.1 work (recalibrate the aggregator on more sessions, and/or aggregate the chunk-level signal directly rather than per-session detector maxima). The streaming demo retired its saturated risk-timeline figure in favour of the honest chunk-detection distributions above. Per-detector numbers are in `docs/ADVERSARIAL.md`.
 
 ---
 
