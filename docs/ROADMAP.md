@@ -27,6 +27,18 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
 
+### Recommended next order (post real-data)
+
+Agreed sequencing for the remaining work, now that real recordings are in. Rigor/interpretability first (now meaningful on real data), cheap narrative-closers next, hard/data-limited problems last. **This order is a guide, not a contract — revisit it if implementing one phase changes what the next should be.**
+
+1. **5a — SHAP explainability.** Highest portfolio ROI ("why was this session flagged?"). Fold in the same-hardware identification deep-dive (hydra vs dninix). Also feeds the 1.5 decision.
+2. **5c notebook 14 — mock→real drift walkthrough.** Quick win; data + `reports/drift_mock_vs_real.csv` already exist.
+3. **5b — calibration** (reliability diagrams, Brier/ECE). Rigor signal; diagnoses *why* the aggregator saturates → sets up 4.1 with evidence.
+4. **5d — ablation study.** Which of the 25 features carry the signal. **Gate for Phase 1.5.**
+5. **1.5 — feature expansion.** Only if 5a/5d surface a concrete gap; otherwise skip and say so.
+6. **4.1 — aggregator redesign.** Split it: feeding the chunk-level LSTM signal into the live score is doable now; the "combined > best-individual" recalibration is data-starved at 18 sessions — defer until more recordings land.
+7. **5e + CI pre-ingestion hook.** Production-maturity polish; low dependency; good closing task.
+
 > **Pre-recording readiness (done):** ahead of the real GTA recordings, shipped data-independent infra — drift detection (5c), a recording QC gate (`scripts/validate_recordings.py`), polling-rate normalization, and dependency fixes. See the [Pre-recording readiness](#pre-recording-readiness-done-while-waiting-for-real-recordings) section and the Recording Arrival Runbook in [docs/MONITORING.md](MONITORING.md).
 
 ---
