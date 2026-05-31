@@ -1,0 +1,43 @@
+# Run the inference API + the Streamlit dashboard from one image.
+#   docker compose up --build
+# API:        http://localhost:8000  (docs at /docs)
+# Dashboard:  http://localhost:8501
+#
+# Artifacts: local runs mount ./models + ./data (use what `dvc repro` produced).
+# For a clean host with no local data, set DAGSHUB_USER / DAGSHUB_TOKEN and the
+# entrypoint will `dvc pull` them instead.
+
+services:
+  api:
+    build: .
+    image: behaviordna:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - DAGSHUB_USER=${DAGSHUB_USER:-}
+      - DAGSHUB_TOKEN=${DAGSHUB_TOKEN:-}
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./reports:/app/reports
+
+  dashboard:
+    build: .
+    image: behaviordna:latest
+    depends_on:
+      - api
+    ports:
+      - "8501:8501"
+    environment:
+      - DAGSHUB_USER=${DAGSHUB_USER:-}
+      - DAGSHUB_TOKEN=${DAGSHUB_TOKEN:-}
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./reports:/app/reports
+    command:
+      - streamlit
+      - run
+      - dashboard/app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0

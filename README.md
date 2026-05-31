@@ -179,6 +179,16 @@ streamlit run dashboard/app.py
 
 Opens at `http://localhost:8501` — four tabs: Overview, Player Profiles, Predict, Session Explorer.
 
+### 7. Or run the whole stack in Docker
+
+```bash
+docker compose up --build      # API → :8000 (/docs) · dashboard → :8501
+```
+
+API + dashboard from one image; mounts your local `models/` + `data/`, or
+`dvc pull`s them with a DagsHub token. Hosted-demo (Streamlit Cloud) + deploy
+notes: **[docs/DEPLOY.md](docs/DEPLOY.md)**.
+
 ---
 
 ## Roadmap

@@ -1,0 +1,13 @@
+# Keep the build context small: code + small model artifacts only.
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.dvc/cache
+data
+notebooks
+reports/figures/*.gif
+REVIEWER_NOTES.md
+*.ipynb_checkpoints

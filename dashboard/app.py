@@ -78,6 +78,38 @@ st.set_page_config(
 
 st.title("🧬 BehaviorDNA — Behavioral Biometrics Explorer")
 
+
+def _ensure_artifact_or_stop() -> None:
+    """On a fresh/hosted env the DVC-tracked model may be absent. Try a token-based
+    `dvc pull` if creds are present; otherwise show a friendly message and stop
+    rather than crashing with FileNotFoundError."""
+    if MODEL_PATH.exists():
+        return
+    import os
+    import subprocess
+
+    if os.environ.get("DAGSHUB_TOKEN"):
+        for key, val in (
+            ("auth", "basic"),
+            ("user", os.environ.get("DAGSHUB_USER", "token")),
+            ("password", os.environ["DAGSHUB_TOKEN"]),
+        ):
+            subprocess.run(
+                ["dvc", "remote", "modify", "origin", "--local", key, val],
+                cwd=ROOT,
+                check=False,
+            )
+        subprocess.run(["dvc", "pull"], cwd=ROOT, check=False, timeout=600)
+    if not MODEL_PATH.exists():
+        st.error(
+            "**No trained model found.** This hosted demo needs the DVC-tracked "
+            "artifacts. Set `DAGSHUB_USER` / `DAGSHUB_TOKEN` secrets so the app can "
+            "`dvc pull`, or run `dvc repro` locally. See [docs/DEPLOY.md](docs/DEPLOY.md)."
+        )
+        st.stop()
+
+
+_ensure_artifact_or_stop()
 artifact = load_artifact()
 all_data = load_all_splits()
 test_data = load_test()
