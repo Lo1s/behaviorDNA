@@ -594,6 +594,7 @@ def export_onnx(artifact: dict, out_path: Path) -> None:
 
         out_path.write_bytes(onnx_model.SerializeToString())
         log.info("ONNX model saved: %s  (%d bytes)", out_path, out_path.stat().st_size)
+        _validate_onnx_fidelity(artifact, out_path)
     except ImportError as exc:
         log.warning("Missing ONNX dependency (%s) — writing empty model.onnx", exc)
         out_path.write_bytes(b"")
@@ -604,6 +605,46 @@ def export_onnx(artifact: dict, out_path: Path) -> None:
             exc,
         )
         out_path.write_bytes(b"")
+
+
+def _validate_onnx_fidelity(artifact: dict, out_path: Path, tol: float = 1e-3) -> None:
+    """Warn if the exported ONNX probabilities diverge from the sklearn model.
+
+    Catches silent serving bugs (e.g. the onnxmltools/LightGBM multiclass
+    converter mismatch documented in docs/FINDINGS.md) at export time rather
+    than in production. Best-effort: skipped if onnxruntime is unavailable.
+    """
+    model = artifact.get("model")
+    if model is None or not hasattr(model, "predict_proba"):
+        return
+    try:
+        import numpy as _np
+        import onnxruntime as _ort
+
+        rng = _np.random.default_rng(0)
+        X = rng.normal(size=(64, len(FEATURE_COLS))).astype(_np.float64)
+        p_sk = model.predict_proba(artifact["scaler"].transform(_np.asarray(X)))
+        sess = _ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
+        name = sess.get_inputs()[0].name
+        p_ox = _np.asarray(
+            sess.run(["probabilities"], {name: X.astype(_np.float32)})[0]
+        )
+        mae = float(_np.abs(p_sk - p_ox).mean())
+        if mae > tol:
+            log.warning(
+                "ONNX export fidelity check FAILED: probability MAE %.3f > %.0e — "
+                "the serving graph disagrees with the sklearn model (see "
+                "docs/FINDINGS.md). Do not use models/model.onnx for production "
+                "scoring until resolved.",
+                mae,
+                tol,
+            )
+        else:
+            log.info("ONNX export fidelity check passed (probability MAE %.2e).", mae)
+    except ImportError:
+        pass
+    except Exception as exc:  # never fail training on a diagnostic
+        log.warning("ONNX fidelity check skipped (%s).", exc)
 
 
 def log_to_mlflow(artifact: dict, metrics: dict, cfg: dict) -> None:

@@ -1,0 +1,25 @@
+{
+  "onnx_fidelity_ok": false,
+  "label_agreement": 0.83203125,
+  "probability_mae": 0.12675048394530627,
+  "probability_max_abs": 0.973466056668006,
+  "fraction_of_label_flips_at_near_ties": 0.0,
+  "n_features": 25,
+  "single_window_latency": {
+    "sklearn": {
+      "p50_ms": 1.4039814996067435,
+      "p95_ms": 1.82330720781465,
+      "mean_ms": 1.417733851732919
+    },
+    "onnx": {
+      "p50_ms": 0.015272002201527357,
+      "p95_ms": 0.02444940182613202,
+      "mean_ms": 0.019178163037092116
+    }
+  },
+  "throughput_windows_per_s": {
+    "sklearn": 89392.51249092359,
+    "onnx": 388200.2735634638
+  },
+  "onnx_speedup_p50": 91.93172454272766
+}
