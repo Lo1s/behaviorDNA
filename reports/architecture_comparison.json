@@ -1,0 +1,38 @@
+{
+  "LSTM-AE": {
+    "params": 196120,
+    "train_time_s": 28.3,
+    "train_loss": 0.60951,
+    "val_loss": 0.57923,
+    "overfit_gap": -0.03028,
+    "chunk_auc": {
+      "aimbot": 0.8043979654351894,
+      "triggerbot": 0.9398565361630761,
+      "macro": 0.6135355270723613
+    }
+  },
+  "TCN-AE": {
+    "params": 78488,
+    "train_time_s": 16.8,
+    "train_loss": 0.42069,
+    "val_loss": 0.47292,
+    "overfit_gap": 0.05223,
+    "chunk_auc": {
+      "aimbot": 0.7314337316264671,
+      "triggerbot": 0.8419246639275895,
+      "macro": 0.5716144800476324
+    }
+  },
+  "Transformer-AE": {
+    "params": 207320,
+    "train_time_s": 33.3,
+    "train_loss": 0.61766,
+    "val_loss": 0.61664,
+    "overfit_gap": -0.00101,
+    "chunk_auc": {
+      "aimbot": 0.8168251986109745,
+      "triggerbot": 0.9583847498841592,
+      "macro": 0.6084957462084686
+    }
+  }
+}

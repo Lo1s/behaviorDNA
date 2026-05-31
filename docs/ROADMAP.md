@@ -224,7 +224,8 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 - [x] **`pipeline/adversarial/live_cheat.py`** — pure, unit-tested planning layer (14 tests): difficulty presets (shared with `bot_generator`), rng-seeded planners for aimbot micro-correction snaps (easing + overshoot/jitter for the soft/evasive case), sub-human triggerbot bursts, and recoil/rapid-fire macros, emitting abstract `InputAction`s; plus `toggle_log_to_segments`.
 - [x] **`collector/cheat_sim.py`** — Windows-side actuator (`SendInput`) + `pynput` toggle-hotkey loop running alongside the recorder. **Safe by construction: no target acquisition, no memory reads, no online** — produces the input signature, not a functional competitive cheat. Offline-only guard + provenance log.
 - [x] **`scripts/label_cheat_segments.py`** — derives `cheat_label` + `cheat_segments` from the toggle keys captured *in-band* by the recorder (no cross-process clock sync) and strips the control keys; drop-in for the pipeline (5 tests).
-- [ ] **Awaiting recordings:** capture real continuous-cheat sessions, then re-run the adversarial benchmark on **real** cheats and **re-attempt Phase 4.1** (continuous cheating → session separates).
+- [x] **Architecture comparison (unsupervised, done):** LSTM-AE vs TCN-AE vs Transformer-AE on the chunk task — all competitive at N=18 (Transformer marginally best, TCN cheapest; capacity isn't the bottleneck). `scripts/compare_architectures.py`, [docs/ARCHITECTURE_COMPARISON.md](ARCHITECTURE_COMPARISON.md).
+- [ ] **Awaiting recordings:** capture real continuous-cheat sessions, then (a) re-run the adversarial benchmark on **real** cheats, (b) **re-attempt Phase 4.1** (continuous cheating → session separates), and (c) re-run the architecture comparison **supervised** (classifier head per backbone — labels should dominate; ranking may change).
 
 ## Tooling backlog
 
