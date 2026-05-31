@@ -23,7 +23,7 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
 | 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Bayesian multi-detector aggregator + WebSocket API + live dashboard | ✅ Infra done; combined risk saturates on real data → 4.1 |
 | 4.1. [Live recorder + aggregator redesign](#phase-41--live-recorder--multi-user-backlog) | Aggregator redesign (real data), live recorder, WS auth | 📝 Backlog |
-| 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | 🚧 5a + 5b + 5c done; 5d ablation + 5e registry to go |
+| 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | 🚧 5a + 5b + 5c + 5d done; 5e registry to go |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
 
@@ -34,9 +34,9 @@ Agreed sequencing for the remaining work, now that real recordings are in. Rigor
 1. ~~**5a — SHAP explainability.**~~ ✅ **done** — `notebooks/12_explainability.ipynb` + `pipeline/explainability.py`; included the same-hardware hydra-vs-dninix deep-dive and LSTM-AE per-channel attribution.
 2. ~~**5c notebook 14 — mock→real drift walkthrough.**~~ ✅ **done** — `notebooks/14_drift.ipynb`.
 3. ~~**5b — calibration** (reliability diagrams, Brier/ECE).~~ ✅ **done** — `notebooks/13_calibration.ipynb`; isotonic improved Brier, Platt hurt (small-N fragility, same root cause as the aggregator saturation).
-4. **5d — ablation study.** ← **currently next.** Which of the 25 features carry the signal. **Gate for Phase 1.5.**
-5. **1.5 — feature expansion.** Only if 5a/5d surface a concrete gap; otherwise skip and say so.
-6. **4.1 — aggregator redesign.** Split it: feeding the chunk-level LSTM signal into the live score is doable now; the "combined > best-individual" recalibration is data-starved at 18 sessions — defer until more recordings land.
+4. ~~**5d — ablation study.**~~ ✅ **done** — revealed over-parameterisation at N=18; redundant fingerprint across families.
+5. ~~**1.5 — feature expansion.**~~ ✅ **gate resolved: SKIP/defer** — 5d says the model already has too many features for the data (see Phase 1.5 note). Revisit only with much more data.
+6. **4.1 — aggregator redesign.** ← **currently next.** Split it: feeding the chunk-level LSTM signal into the live score is doable now; the "combined > best-individual" recalibration is data-starved at 18 sessions — defer until more recordings land.
 7. **5e + CI pre-ingestion hook.** Production-maturity polish; low dependency; good closing task.
 
 > **Pre-recording readiness (done):** ahead of the real GTA recordings, shipped data-independent infra — drift detection (5c), a recording QC gate (`scripts/validate_recordings.py`), polling-rate normalization, and dependency fixes. See the [Pre-recording readiness](#pre-recording-readiness-done-while-waiting-for-real-recordings) section and the Recording Arrival Runbook in [docs/MONITORING.md](MONITORING.md).
@@ -70,6 +70,8 @@ Agreed sequencing for the remaining work, now that real recordings are in. Rigor
 ---
 
 ## Phase 1.5 — Feature expansion (optional)
+
+> **Gate decision (2026-05-31): DEFERRED — do not add features now.** The Phase 5d ablation (`notebooks/15_ablation.ipynb`) showed the 25-feature model is already **over-parameterised at 18 sessions** — dropping whole feature families often *raises* validation accuracy, and single families classify well alone (redundant fingerprint). Adding more features would worsen overfitting, not help. **Revisit only once a much larger dataset makes the full feature set non-overfitting**; at that point re-run 5d and promote entries against a measured gap. (The nearer-term lever at this scale is *more recordings* or *feature reduction*, not feature addition.)
 
 **Backlog of further window-feature ideas**, revisited after Phase 5 calibration/SHAP analysis identifies gaps. Not scheduled — promote individual entries if a real signal gap motivates them.
 
@@ -246,8 +248,9 @@ The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8,
 - [x] `tests/test_drift.py` (13 tests)
 - [x] `notebooks/14_drift.ipynb` — visual mock-vs-real drift walkthrough (PSI bars, KS ECDF overlay, top-feature distribution overlays); figures `reports/figures/phase5c_*.png`
 
-**5d. Ablation study** — `notebooks/15_ablation.ipynb`
-- [ ] Remove each feature group, re-evaluate, heatmap marginal contribution
+**5d. Ablation study** ✅ done — `notebooks/15_ablation.ipynb`
+- [x] Leave-one-group-out + only-group, 5 feature families, 8-seed-averaged val accuracy
+- **Finding:** the player fingerprint is **redundant across families** (mouse-kinematics and keyboard each ≈ 0.75–0.79 *alone* vs 0.33 chance), and the full 25-feature model is **over-parameterised at N=18 sessions** — dropping a whole family often *raises* val accuracy above the full model (0.72). → directly gates Phase 1.5 (see below). Figure `reports/figures/phase5d_ablation.png`
 
 **5e. Model registry hardening**
 - [ ] MLflow Model Registry stages (Staging → Production)
