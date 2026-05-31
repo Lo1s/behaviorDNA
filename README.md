@@ -16,6 +16,21 @@
 
 ---
 
+## Results at a glance
+
+| Task | Result | Notes |
+|---|---|---|
+| Player ID — 3 players (real) | **0.853** acc / 0.862 F1 | per 30 s window |
+| Player ID — same-hardware pair | **0.75** acc | honest biometric (no hardware confound; 0.65 baseline) |
+| Cheat detection — triggerbot | **0.93** chunk ROC AUC | LSTM autoencoder |
+| Cheat detection — aimbot | **0.79** chunk ROC AUC | hand-crafted window features ≈ 0.50 (chance) |
+| Mock → real drift | **20 / 25** features significant | KS + PSI |
+| Inference (sklearn, CPU) | **1.4 ms**/window · ~89k windows/s | real-time at one window per 30 s |
+
+📋 **[Model Card](MODEL_CARD.md)** · 🔬 **[Findings](docs/FINDINGS.md)** — the honest results, limitations (small-N over-parameterisation, session-level ceiling, an ONNX-export bug caught by validation), and what each means for anti-cheat. *Numbers are directional at N=18 sessions, not production guarantees.*
+
+---
+
 ## What is this?
 
 BehaviorDNA is a game-agnostic ML system that:
