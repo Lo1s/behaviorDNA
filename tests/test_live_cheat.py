@@ -17,6 +17,7 @@ from pipeline.adversarial.live_cheat import (
     plan_macro_tick,
     plan_trigger_burst,
     toggle_log_to_segments,
+    toggle_log_to_typed_segments,
 )
 
 
@@ -144,3 +145,55 @@ class TestToggleLogToSegments:
         label, segs = toggle_log_to_segments(events, self.KEYS)
         assert label == "legit"
         assert segs == []
+
+
+class TestToggleLogToTypedSegments:
+    KEYS = {"Key.f8": "aimbot", "Key.f9": "triggerbot", "Key.f10": "macro"}
+
+    def test_multi_cheat_keeps_each_span_type(self):
+        # aimbot, then triggerbot, then macro — one span each, in time order.
+        events = [
+            _kp(1000, "Key.f8"),
+            _kp(2000, "Key.f8"),  # aimbot 1000-2000
+            _kp(3000, "Key.f9"),
+            _kp(4000, "Key.f9"),  # triggerbot 3000-4000
+            _kp(5000, "Key.f10"),
+            _kp(6000, "Key.f10"),  # macro 5000-6000
+        ]
+        typed = toggle_log_to_typed_segments(events, self.KEYS)
+        assert typed == [
+            (1000.0, 2000.0, "aimbot"),
+            (3000.0, 4000.0, "triggerbot"),
+            (5000.0, 6000.0, "macro"),
+        ]
+
+    def test_sorted_by_start_across_types(self):
+        # interleaved presses still come out sorted by start time
+        events = [
+            _kp(5000, "Key.f10"),
+            _kp(6000, "Key.f10"),
+            _kp(1000, "Key.f8"),
+            _kp(2000, "Key.f8"),
+        ]
+        typed = toggle_log_to_typed_segments(events, self.KEYS)
+        assert [t[2] for t in typed] == ["aimbot", "macro"]
+        assert [t[0] for t in typed] == [1000.0, 5000.0]
+
+    def test_odd_press_runs_to_session_end(self):
+        typed = toggle_log_to_typed_segments(
+            [_kp(2000, "Key.f9")], self.KEYS, session_end_ms=9000
+        )
+        assert typed == [(2000.0, 9000.0, "triggerbot")]
+
+    def test_backward_compat_wrapper_matches(self):
+        # toggle_log_to_segments == untyped union + argmax label over the typed spans
+        events = [
+            _kp(0, "Key.f9"),
+            _kp(500, "Key.f9"),  # triggerbot 500ms
+            _kp(1000, "Key.f8"),
+            _kp(9000, "Key.f8"),  # aimbot 8000ms (dominant)
+        ]
+        label, segs = toggle_log_to_segments(events, self.KEYS)
+        typed = toggle_log_to_typed_segments(events, self.KEYS)
+        assert label == "aimbot"
+        assert segs == sorted([s, e] for s, e, _ in typed)

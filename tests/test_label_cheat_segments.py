@@ -56,3 +56,56 @@ class TestLabelSession:
         out = label_session(s)
         assert out["cheat_label"] == "legit"
         assert out["cheat_segments"] == []
+
+    def test_single_cheat_emits_typed_segments(self):
+        out = label_session(_session())
+        assert out["cheat_segments_typed"] == [
+            {"start_ms": 1000.0, "end_ms": 4000.0, "cheat": "aimbot"}
+        ]
+        assert out["cheat_labels"] == ["aimbot"]
+
+    def test_difficulty_is_stored(self):
+        out = label_session(_session(), difficulty="Obvious")
+        assert out["difficulty"] == "obvious"
+
+
+def _multi_cheat_session():
+    """aimbot → triggerbot → macro in one recording (the real-batch protocol)."""
+    events = [
+        {"t": 0.0, "type": "mouse_move", "x": 1, "y": 1, "dx": 1, "dy": 0},
+        {"t": 1000.0, "type": "key_press", "key": "Key.f8"},  # aimbot ON
+        {"t": 3000.0, "type": "key_press", "key": "Key.f8"},  # aimbot OFF
+        {"t": 5000.0, "type": "key_press", "key": "Key.f9"},  # triggerbot ON
+        {"t": 7000.0, "type": "key_press", "key": "Key.f9"},  # triggerbot OFF
+        {"t": 9000.0, "type": "key_press", "key": "Key.f10"},  # macro ON
+        {"t": 11000.0, "type": "key_press", "key": "Key.f10"},  # macro OFF
+        {"t": 11500.0, "type": "key_press", "key": "w"},  # real gameplay key
+    ]
+    return {"session_id": "multi1234", "player": "tester", "events": events}
+
+
+class TestMultiCheatSession:
+    def test_label_is_mixed_with_all_types(self):
+        out = label_session(_multi_cheat_session())
+        assert out["cheat_label"] == "mixed"
+        assert out["cheat_labels"] == ["aimbot", "macro", "triggerbot"]
+
+    def test_typed_segments_preserve_each_type_in_order(self):
+        out = label_session(_multi_cheat_session())
+        typed = [
+            (s["cheat"], s["start_ms"], s["end_ms"])
+            for s in out["cheat_segments_typed"]
+        ]
+        assert typed == [
+            ("aimbot", 1000.0, 3000.0),
+            ("triggerbot", 5000.0, 7000.0),
+            ("macro", 9000.0, 11000.0),
+        ]
+
+    def test_untyped_union_still_present_for_back_compat(self):
+        out = label_session(_multi_cheat_session())
+        assert out["cheat_segments"] == [
+            [1000.0, 3000.0],
+            [5000.0, 7000.0],
+            [9000.0, 11000.0],
+        ]

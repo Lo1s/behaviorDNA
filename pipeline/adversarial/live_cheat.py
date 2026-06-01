@@ -188,19 +188,19 @@ def plan_macro_tick(
 # ---------------------------------------------------------------------------
 
 
-def toggle_log_to_segments(
+def toggle_log_to_typed_segments(
     events: list[dict],
     toggle_keys: dict[str, str],
     session_end_ms: float | None = None,
-) -> tuple[str, list[list[float]]]:
-    """Derive ``(cheat_label, cheat_segments)`` from toggle-key presses.
+) -> list[tuple[float, float, str]]:
+    """Derive **typed** cheat spans ``(start_ms, end_ms, cheat_type)`` from toggles.
 
     ``toggle_keys`` maps a key string (as the recorder logs it, e.g. ``"Key.f8"``)
-    to a cheat type. Each press of a key **toggles** that cheat on/off — so
-    presses pair up into on-spans (an odd final press runs to ``session_end_ms``
-    or the last event's timestamp). ``cheat_segments`` is the union of all
-    cheat-active ``[start_ms, end_ms]`` spans; ``cheat_label`` is the cheat type
-    with the most total active time (``"legit"`` if nothing was toggled).
+    to a cheat type. Each press of a key **toggles** that cheat on/off — presses
+    pair up into on-spans (an odd final press runs to ``session_end_ms`` or the
+    last event's timestamp). Spans are returned sorted by start time, each
+    tagged with its own cheat type — so a single recording that toggled several
+    cheats (e.g. aimbot → triggerbot → macro) keeps every span's true type.
     """
     if session_end_ms is None:
         session_end_ms = max((float(e.get("t", 0.0)) for e in events), default=0.0)
@@ -213,24 +213,43 @@ def toggle_log_to_segments(
         if cheat is not None:
             presses[cheat].append(float(ev.get("t", 0.0)))
 
-    segments: list[list[float]] = []
-    active_ms: dict[str, float] = {}
+    typed: list[tuple[float, float, str]] = []
     for cheat, ts in presses.items():
         ts = sorted(ts)
-        total = 0.0
         for i in range(0, len(ts), 2):
             start = ts[i]
             end = ts[i + 1] if i + 1 < len(ts) else session_end_ms
             if end > start:
-                segments.append([start, end])
-                total += end - start
-        if total > 0:
-            active_ms[cheat] = total
+                typed.append((start, end, cheat))
 
-    if not active_ms:
+    typed.sort(key=lambda s: (s[0], s[1]))
+    return typed
+
+
+def toggle_log_to_segments(
+    events: list[dict],
+    toggle_keys: dict[str, str],
+    session_end_ms: float | None = None,
+) -> tuple[str, list[list[float]]]:
+    """Derive ``(cheat_label, cheat_segments)`` from toggle-key presses.
+
+    Backward-compatible single-label view over
+    :func:`toggle_log_to_typed_segments`: ``cheat_segments`` is the untyped union
+    of all cheat-active ``[start_ms, end_ms]`` spans; ``cheat_label`` is the
+    cheat type with the most total active time (``"legit"`` if nothing was
+    toggled). For multi-cheat recordings prefer the typed function so each
+    span's type is preserved.
+    """
+    typed = toggle_log_to_typed_segments(events, toggle_keys, session_end_ms)
+    if not typed:
         return CHEAT_LEGIT, []
+
+    active_ms: dict[str, float] = {}
+    for start, end, cheat in typed:
+        active_ms[cheat] = active_ms.get(cheat, 0.0) + (end - start)
     label = max(active_ms, key=active_ms.get)
-    return label, sorted(segments)
+    segments = sorted([start, end] for start, end, _ in typed)
+    return label, segments
 
 
 # Re-export the cheat-type constants so callers import them from one place.
@@ -244,6 +263,7 @@ __all__ = [
     "plan_trigger_burst",
     "plan_macro_tick",
     "toggle_log_to_segments",
+    "toggle_log_to_typed_segments",
     "CHEAT_AIMBOT",
     "CHEAT_TRIGGERBOT",
     "CHEAT_MACRO",

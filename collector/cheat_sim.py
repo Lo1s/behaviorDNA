@@ -338,10 +338,16 @@ def main() -> int:
 
     print(__doc__.split("Usage")[0])  # banner
 
+    # Per-run log filename so successive sessions don't overwrite one another —
+    # this typed on/off + difficulty log is the out-of-band ground truth.
+    log_path = OUTPUT_DIR / (
+        f"cheat_activity_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.jsonl"
+    )
+
     # --selftest is a desktop diagnostic (no game) — skip the offline confirmation.
     if not args.selftest:
         print(f"  Difficulty  : {args.difficulty}")
-        print(f"  Output log  : {OUTPUT_DIR / 'cheat_activity.jsonl'}")
+        print(f"  Output log  : {log_path}")
         if not _confirm_offline(args):
             print("Not confirmed offline — aborting.")
             return 1
@@ -366,7 +372,7 @@ def main() -> int:
 
     state = State(args.difficulty, args.seed)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    log_f = open(OUTPUT_DIR / "cheat_activity.jsonl", "w", encoding="utf-8")
+    log_f = open(log_path, "w", encoding="utf-8")
 
     def on_press(key):
         name = getattr(key, "name", None)

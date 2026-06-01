@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -141,6 +143,9 @@ class BenchmarkResult:
     fpr_threshold: float
     mean_score_legit: float
     mean_score_cheat: float
+    # Difficulty bucket for chunk-level rows ("soft"/"medium"/"obvious"/"all");
+    # None for detectors that don't break out by difficulty.
+    difficulty: str | None = None
 
 
 def _detection_rate_at_fpr(y_true, scores, fpr_threshold: float) -> float:
@@ -441,14 +446,106 @@ def compute_pr_curves(
 
 
 def _format_summary(results: pd.DataFrame) -> str:
-    """Pretty-print a tabular benchmark summary."""
-    pivot = results.pivot_table(
+    """Pretty-print a tabular benchmark summary (detector × cheat type).
+
+    Per-difficulty chunk rows are collapsed to their ``difficulty="all"``
+    aggregate so the headline stays one AUC per detector × cheat type.
+    """
+    df = results
+    if "difficulty" in df.columns:
+        df = df[df["difficulty"].isna() | (df["difficulty"] == "all")]
+    pivot = df.pivot_table(
         index="detector",
         columns="cheat_label",
         values="roc_auc",
         aggfunc="first",
     )
     return pivot.round(3).to_string()
+
+
+# ---------------------------------------------------------------------------
+# Typed cheat-segment helpers (per-type / per-difficulty labelling)
+# ---------------------------------------------------------------------------
+
+_DIFFICULTY_RE = re.compile(r"_(soft|medium|obvious)\.json$", re.IGNORECASE)
+
+
+def _typed_segments(
+    data: dict, drop_accidental: bool = False
+) -> list[tuple[float, float, str]]:
+    """Return cheat spans as ``(start_ms, end_ms, cheat_type)``.
+
+    Prefers the typed ``cheat_segments_typed`` field (real multi-cheat
+    sessions). Falls back to pairing the untyped ``cheat_segments`` with the
+    session-level ``cheat_label`` — which reproduces the original single-type
+    behaviour for the synthetic dataset exactly. Returns ``[]`` for legit/empty.
+
+    With ``drop_accidental`` the typed entries flagged ``accidental`` (e.g. the
+    medium session's 20 s misclick macro) are excluded.
+    """
+    typed = data.get("cheat_segments_typed")
+    if typed:
+        return [
+            (float(s["start_ms"]), float(s["end_ms"]), str(s["cheat"]))
+            for s in typed
+            if not (drop_accidental and s.get("accidental"))
+        ]
+    segs = data.get("cheat_segments") or []
+    label = data.get("cheat_label", CHEAT_LEGIT)
+    if label == CHEAT_LEGIT:
+        return []
+    return [(float(a), float(b), label) for a, b in segs]
+
+
+def _chunk_cheat_labels(
+    data: dict,
+    chunk_length: int,
+    n_chunks: int,
+    drop_accidental: bool = False,
+) -> np.ndarray:
+    """Per-chunk cheat type by majority event-overlap; ``""`` for clean chunks.
+
+    Mirrors the event-time → in-segment indexing the binary ``contains_cheat``
+    flag used, but resolves a *type* per chunk: for each chunk we count how many
+    of its events fall inside each cheat type's spans and assign the type with
+    the most (ties broken by sorted type name); ``""`` if a chunk overlaps no
+    cheat span. Relies on ``session_to_event_tensor`` producing one row per
+    event (verified) so chunk row indices map back to ``data["events"]``.
+    """
+    labels = np.full(n_chunks, "", dtype=object)
+    segs = _typed_segments(data, drop_accidental=drop_accidental)
+    events = data.get("events")
+    if not segs or not events:
+        return labels
+
+    times = np.array([ev.get("t", 0.0) for ev in events], dtype=np.float64)
+    types = sorted({ct for _, _, ct in segs})
+    type_masks: dict[str, np.ndarray] = {}
+    for t in types:
+        m = np.zeros(len(times), dtype=bool)
+        for a, b, ct in segs:
+            if ct == t:
+                m |= (times >= a) & (times <= b)
+        type_masks[t] = m
+
+    for i in range(n_chunks):
+        sl = slice(i * chunk_length, (i + 1) * chunk_length)
+        counts = {t: int(m[sl].sum()) for t, m in type_masks.items()}
+        max_count = max(counts.values())
+        if max_count > 0:
+            winners = sorted(t for t, c in counts.items() if c == max_count)
+            labels[i] = winners[0]
+    return labels
+
+
+def _session_difficulty(data: dict, path: Path) -> str | None:
+    """Difficulty bucket for a session: the JSON ``difficulty`` field, else the
+    synthetic filename suffix (``_soft``/``_medium``/``_obvious``), else None."""
+    d = data.get("difficulty")
+    if d:
+        return str(d).lower()
+    m = _DIFFICULTY_RE.search(path.name)
+    return m.group(1).lower() if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -633,7 +730,8 @@ def run_lstm_ae_benchmark(
         )
 
     # --- Chunk-level scoring: load every session, score every non-overlapping
-    # chunk, and (for cheat files) flag chunks that overlap a cheat_segment.
+    # chunk, and resolve each chunk's cheat TYPE ("" = clean) from the typed
+    # segments (falling back to untyped cheat_segments + session label).
     def chunk_data(path: Path):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
@@ -649,18 +747,7 @@ def run_lstm_ae_benchmark(
             ]
         )
 
-        # Flag chunks overlapping any cheat_segment
-        segs = data.get("cheat_segments") or []
-        contains_cheat = np.zeros(n_chunks, dtype=bool)
-        if segs and data.get("events"):
-            times = np.array([ev.get("t", 0.0) for ev in data["events"]])
-            in_seg = np.zeros(len(times), dtype=bool)
-            for s_start, s_end in segs:
-                in_seg |= (times >= s_start) & (times <= s_end)
-            for i in range(n_chunks):
-                contains_cheat[i] = in_seg[
-                    i * chunk_length : (i + 1) * chunk_length
-                ].any()
+        chunk_labels = _chunk_cheat_labels(data, chunk_length, n_chunks)
 
         chunk_scores = score_sequences(
             model,
@@ -668,17 +755,21 @@ def run_lstm_ae_benchmark(
             batch_size=batch_size,
             device=device,
         )
-        return chunk_scores, contains_cheat
+        return chunk_scores, chunk_labels
 
-    # Aggregate chunk-level + session-level metrics per cheat type
     rows: list[BenchmarkResult] = []
-    paths_by_label = {label: [] for label in by_label}
+
+    # Group session paths by session-level label + remember each file's
+    # difficulty bucket (JSON field, else synthetic filename suffix).
+    paths_by_label: dict[str, list[Path]] = {}
+    difficulty_by_path: dict[Path, str | None] = {}
     for path in sorted(synthetic_dir.glob("*.json")):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         paths_by_label.setdefault(data.get("cheat_label", "legit"), []).append(path)
+        difficulty_by_path[path] = _session_difficulty(data, path)
 
-    # Pre-score legit sessions once — used by both granularities
+    # Pre-score legit sessions once — the shared legit baseline.
     legit_chunk_scores: list[np.ndarray] = []
     legit_session_scores: list[float] = []
     for path in paths_by_label.get("legit", []):
@@ -697,77 +788,95 @@ def run_lstm_ae_benchmark(
     legit_chunks_flat = np.concatenate(legit_chunk_scores)
     legit_session_arr = np.array(legit_session_scores, dtype=np.float64)
 
+    # Score every cheat session once; reuse for both granularities.
+    cheat_paths = [
+        p for lbl, ps in paths_by_label.items() if lbl != "legit" for p in ps
+    ]
+    cheat_cache: dict[Path, tuple[np.ndarray, np.ndarray]] = {}
+    for path in cheat_paths:
+        out = chunk_data(path)
+        if out is not None:
+            cheat_cache[path] = out
+
+    # --- Chunk-level AUC, per (cheat_type, difficulty) -----------------------
+    # Route every cheat-bearing chunk to its OWN type across all sessions, so a
+    # multi-cheat ("mixed") session contributes to each type separately. Each
+    # type also gets a difficulty="all" aggregate, which reproduces the original
+    # single-label chunk AUC on the synthetic dataset.
+    pos_by_key: dict[tuple[str, str], list[float]] = defaultdict(list)
+    for path, (scores, chunk_labels) in cheat_cache.items():
+        diff = difficulty_by_path[path] or "unknown"
+        for ct in set(chunk_labels.tolist()) - {""}:
+            sc = scores[chunk_labels == ct].tolist()
+            pos_by_key[(ct, diff)].extend(sc)
+            pos_by_key[(ct, "all")].extend(sc)
+
+    def _emit_chunk_row(cheat_type: str, difficulty: str, pos_scores: list[float]):
+        if not pos_scores:
+            return
+        pos = np.array(pos_scores, dtype=np.float64)
+        chunk_y = np.concatenate([np.zeros(len(legit_chunks_flat)), np.ones(len(pos))])
+        chunk_s = np.concatenate([legit_chunks_flat, pos])
+        try:
+            chunk_roc = roc_auc_score(chunk_y, chunk_s)
+            chunk_pr = average_precision_score(chunk_y, chunk_s)
+            chunk_det = _detection_rate_at_fpr(chunk_y, chunk_s, fpr_threshold)
+        except ValueError:
+            chunk_roc = chunk_pr = chunk_det = float("nan")
+        rows.append(
+            BenchmarkResult(
+                detector="LSTMAutoencoder/chunk",
+                cheat_label=cheat_type,
+                difficulty=difficulty,
+                n_legit=int(len(legit_chunks_flat)),
+                n_cheat=int(len(pos)),
+                roc_auc=float(chunk_roc),
+                pr_auc=float(chunk_pr),
+                detection_rate_at_fpr=float(chunk_det),
+                fpr_threshold=fpr_threshold,
+                mean_score_legit=float(np.mean(legit_chunks_flat)),
+                mean_score_cheat=float(np.mean(pos)),
+            )
+        )
+
+    for key in sorted(pos_by_key):
+        _emit_chunk_row(key[0], key[1], pos_by_key[key])
+
+    # --- Session-level AUC: per-session p95, bucketed by session label -------
+    # Whole-session granularity; multi-cheat sessions appear under "mixed".
     for label in sorted(set(paths_by_label) - {"legit"}):
-        cheat_chunk_scores_pos: list[float] = []  # chunks overlapping a cheat_segment
-        cheat_chunk_scores_neg: list[float] = []  # chunks in the cheat file but clean
-        cheat_session_scores: list[float] = []
-        for path in paths_by_label[label]:
-            out = chunk_data(path)
-            if out is None:
-                continue
-            scores, contains_cheat = out
-            cheat_chunk_scores_pos.extend(scores[contains_cheat])
-            cheat_chunk_scores_neg.extend(scores[~contains_cheat])
-            cheat_session_scores.append(float(np.percentile(scores, score_percentile)))
-
-        # --- Chunk-level AUC: cheat-bearing chunks vs all legit chunks ---
-        if cheat_chunk_scores_pos:
-            chunk_y = np.concatenate(
-                [
-                    np.zeros(len(legit_chunks_flat)),
-                    np.ones(len(cheat_chunk_scores_pos)),
-                ]
+        cheat_session_scores = [
+            float(np.percentile(cheat_cache[p][0], score_percentile))
+            for p in paths_by_label[label]
+            if p in cheat_cache
+        ]
+        if not cheat_session_scores:
+            continue
+        sess_y = np.concatenate(
+            [np.zeros(len(legit_session_arr)), np.ones(len(cheat_session_scores))]
+        )
+        sess_s = np.concatenate([legit_session_arr, np.array(cheat_session_scores)])
+        try:
+            sess_roc = roc_auc_score(sess_y, sess_s)
+            sess_pr = average_precision_score(sess_y, sess_s)
+            sess_det = _detection_rate_at_fpr(sess_y, sess_s, fpr_threshold)
+        except ValueError:
+            sess_roc = sess_pr = sess_det = float("nan")
+        rows.append(
+            BenchmarkResult(
+                detector="LSTMAutoencoder/session",
+                cheat_label=label,
+                difficulty="all",
+                n_legit=int(len(legit_session_arr)),
+                n_cheat=int(len(cheat_session_scores)),
+                roc_auc=float(sess_roc),
+                pr_auc=float(sess_pr),
+                detection_rate_at_fpr=float(sess_det),
+                fpr_threshold=fpr_threshold,
+                mean_score_legit=float(np.mean(legit_session_arr)),
+                mean_score_cheat=float(np.mean(cheat_session_scores)),
             )
-            chunk_s = np.concatenate(
-                [legit_chunks_flat, np.array(cheat_chunk_scores_pos)]
-            )
-            try:
-                chunk_roc = roc_auc_score(chunk_y, chunk_s)
-                chunk_pr = average_precision_score(chunk_y, chunk_s)
-                chunk_det = _detection_rate_at_fpr(chunk_y, chunk_s, fpr_threshold)
-            except ValueError:
-                chunk_roc = chunk_pr = chunk_det = float("nan")
-            rows.append(
-                BenchmarkResult(
-                    detector="LSTMAutoencoder/chunk",
-                    cheat_label=label,
-                    n_legit=int(len(legit_chunks_flat)),
-                    n_cheat=int(len(cheat_chunk_scores_pos)),
-                    roc_auc=float(chunk_roc),
-                    pr_auc=float(chunk_pr),
-                    detection_rate_at_fpr=float(chunk_det),
-                    fpr_threshold=fpr_threshold,
-                    mean_score_legit=float(np.mean(legit_chunks_flat)),
-                    mean_score_cheat=float(np.mean(cheat_chunk_scores_pos)),
-                )
-            )
-
-        # --- Session-level AUC: per-session p95 ---
-        if cheat_session_scores:
-            sess_y = np.concatenate(
-                [np.zeros(len(legit_session_arr)), np.ones(len(cheat_session_scores))]
-            )
-            sess_s = np.concatenate([legit_session_arr, np.array(cheat_session_scores)])
-            try:
-                sess_roc = roc_auc_score(sess_y, sess_s)
-                sess_pr = average_precision_score(sess_y, sess_s)
-                sess_det = _detection_rate_at_fpr(sess_y, sess_s, fpr_threshold)
-            except ValueError:
-                sess_roc = sess_pr = sess_det = float("nan")
-            rows.append(
-                BenchmarkResult(
-                    detector="LSTMAutoencoder/session",
-                    cheat_label=label,
-                    n_legit=int(len(legit_session_arr)),
-                    n_cheat=int(len(cheat_session_scores)),
-                    roc_auc=float(sess_roc),
-                    pr_auc=float(sess_pr),
-                    detection_rate_at_fpr=float(sess_det),
-                    fpr_threshold=fpr_threshold,
-                    mean_score_legit=float(np.mean(legit_session_arr)),
-                    mean_score_cheat=float(np.mean(cheat_session_scores)),
-                )
-            )
+        )
 
     return pd.DataFrame([r.__dict__ for r in rows])
 
@@ -1040,5 +1149,62 @@ def run(include_lstm_ae: bool = True) -> None:
     log.info("\n%s", _format_summary(results))
 
 
+def run_lstm_chunk_only(
+    data_dir: Path = SYNTHETIC_DIR,
+    out_name: str = "real_chunk_benchmark.csv",
+) -> pd.DataFrame:
+    """Run ONLY the chunk-level LSTM-AE benchmark against ``data_dir``.
+
+    Built for the real multi-cheat sessions in ``data/raw`` (whose typed
+    ``cheat_segments_typed`` drives the per-type attribution). Writes the full
+    result table to ``reports/adversarial/<out_name>`` and prints a
+    cheat-type × difficulty AUC grid. Reuses the persisted ``models/lstm_ae.pt``
+    if present, so no retraining happens.
+    """
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        level=logging.INFO,
+        stream=sys.stdout,
+    )
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    log.info("Chunk-level LSTM-AE benchmark over %s", data_dir)
+    results = run_lstm_ae_benchmark(synthetic_dir=data_dir)
+
+    out_path = RESULTS_DIR / out_name
+    results.to_csv(out_path, index=False)
+    log.info("Wrote %s", out_path)
+
+    chunk = results[results["detector"] == "LSTMAutoencoder/chunk"]
+    if not chunk.empty:
+        pivot = chunk.pivot_table(
+            index="cheat_label",
+            columns="difficulty",
+            values="roc_auc",
+            aggfunc="first",
+        )
+        log.info("\nChunk-level ROC AUC (cheat type × difficulty):\n%s", pivot.round(3))
+    return results
+
+
 if __name__ == "__main__":
-    run()
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=None,
+        help="directory of session JSONs to benchmark (default: data/synthetic)",
+    )
+    parser.add_argument(
+        "--lstm-chunk-only",
+        action="store_true",
+        help="run only the chunk-level LSTM-AE per-type benchmark",
+    )
+    args = parser.parse_args()
+
+    if args.lstm_chunk_only or args.data_dir is not None:
+        run_lstm_chunk_only(data_dir=args.data_dir or SYNTHETIC_DIR)
+    else:
+        run()

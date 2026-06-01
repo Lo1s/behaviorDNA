@@ -51,12 +51,17 @@ The recorder already logs every `key_press`. So **bind the cheat on/off to a kno
 hotkey** and you recover *exactly* when the cheat was active from the recording itself —
 no manual annotation:
 
-- Note the toggle key (e.g. `F8`) in the session metadata.
-- A small post-processing step turns the toggle-key timeline into `cheat_segments`
-  (start/end ms pairs) in the session JSON — the **same schema the synthetic generator
-  uses**, so the rest of the pipeline ingests it unchanged.
-- This gives **per-chunk ground truth**, which is what enables honest *within-session*
-  localization (the thing synthetic data could only fake).
+- Note the toggle key (`F8` aimbot · `F9` triggerbot · `F10` macro) — each press flips
+  that cheat on/off, captured in-band as ordinary `key_press` events.
+- `scripts/label_cheat_segments.py` turns the toggle-key timeline into **typed**
+  `cheat_segments_typed` (`[{start_ms, end_ms, cheat}]`, one entry per span tagged with
+  its own type), plus the untyped `cheat_segments` union and `cheat_labels`, in the
+  session JSON. Because every span carries its type, a single recording that toggled
+  **several cheats** (aimbot → triggerbot → macro) is labelled correctly with no manual
+  reconstruction. `cheat_label` is the single type if only one was used, else `"mixed"`.
+- This gives **per-chunk, per-type ground truth**, which the benchmark consumes for
+  per-cheat-type × per-difficulty AUC and honest *within-session* localization (the thing
+  synthetic data could only fake).
 
 Two complementary recording styles:
 1. **Continuous-cheat sessions** — cheat on the whole time (combat/sniping). Most chunks
@@ -108,9 +113,14 @@ python cheat_sim.py --difficulty medium --i-am-offline
 #    triggerbot: hold aim over target → sub-human auto-fire
 #    macro: hold fire → periodic fire + recoil compensation
 
-# 3. after recording, derive labels from the in-band toggles + strip control keys
-python -m scripts.label_cheat_segments data/raw/<session>.json
+# 3. after recording, derive TYPED labels from the in-band toggles + strip control keys
+#    (--difficulty tags the cheat-sim difficulty onto the session)
+python -m scripts.label_cheat_segments data/raw/<session>.json --difficulty medium
 ```
+
+> `cheat_sim.py` also writes a per-run `cheat_activity_<UTCstamp>.jsonl` (typed on/off +
+> difficulty) as out-of-band ground truth — per-run filename, so successive sessions no
+> longer overwrite it. The in-band toggles are authoritative; the jsonl is a backup/cross-check.
 
 Run **continuous-cheat** sessions (cheat on through combat) for the session-level signal,
 and **toggled** sessions for within-session localization labels.
@@ -170,8 +180,9 @@ the sparse synthetic data couldn't).
    full batch.
 2. **Same hardware all batch** — don't change sens/DPI/polling/resolution
    mid-session-set (avoids the confound we hit with different DPI).
-3. **One difficulty per session** (it's a `cheat_sim` run-level flag); the
-   `cheat_activity.jsonl` log records it.
+3. **One difficulty per session** (it's a `cheat_sim` run-level flag); pass the same
+   value to `label_cheat_segments --difficulty`. Each run also writes its own
+   `cheat_activity_<UTCstamp>.jsonl` (no longer overwritten between runs).
 4. **Play naturally** — real movement and aiming; let the bot do only the inhuman
    correction/fire. Don't stand still or spin aimlessly.
 5. **Clean toggles** — tap F8/F9/F10 once to flip; leave a couple of seconds
@@ -181,8 +192,8 @@ the sparse synthetic data couldn't).
    `polling_rate`, sens, dpi in the recorder every time.
 8. **Offline Story Mode only.**
 9. **Label immediately after each session:**
-   `python -m scripts.label_cheat_segments data/raw/<session>.json` and glance at
-   the printed `cheat_label` / segment count.
+   `python -m scripts.label_cheat_segments data/raw/<session>.json --difficulty <d>`
+   and glance at the printed `cheat_label` / `types` / segment count.
 
 ### Expectation-setting (solo)
 
@@ -195,20 +206,59 @@ the sparse synthetic data couldn't).
 
 ---
 
+## Second batch: cross-player (the next priority)
+
+The solo first batch (hydRa, 3 sessions: soft/medium/obvious, each
+aimbot→triggerbot→macro) is **done and labelled with typed segments**. Running it
+through the per-type chunk benchmark gives the honest real-data headline:
+
+| cheat type | real chunk AUC (all difficulties) |
+|---|---|
+| aimbot | ~0.55 |
+| macro | ~0.59 |
+| triggerbot | ~0.63 |
+
+Much weaker than the synthetic 0.79–0.92 — and **aimbot, strongest on synthetic, is
+weakest on real** (a human with aim-assist still does most of the aiming; the synthetic
+generator snaps hard). The biggest confound left is that **all cheat data is one player on
+one rig** (sens 25 / dpi 1600 / 1000 Hz / claw / left), so a detector tuned here could be
+fitting hydRa's hardware, not "cheating". The legit baseline already has 3 players; the
+cheat positives have one.
+
+**So the next data priority is the same protocol from ≥1 other player on different
+hardware** (ideally shotik / Dninix, who already have legit data). Same protocol as above:
+all combat/sniping, one difficulty per session, the aimbot→triggerbot→macro toggle pattern,
+matched tryhard-legit sessions on the *same* gear.
+
+**This is now fully drop-in — no code changes:**
+1. Other player records on the Windows host exactly as the [workflow](#the-harness--cheat_simpy-built) describes.
+2. Label each session: `python -m scripts.label_cheat_segments data/raw/<session>.json --difficulty <d>`
+   → writes typed `cheat_segments_typed` natively (no order-based reconstruction needed —
+   that was a one-off for the first batch, whose in-band toggles had been stripped).
+3. Drop into `data/raw/` and re-run
+   `python -m pipeline.adversarial.benchmark --data-dir data/raw --lstm-chunk-only`
+   → the chunk benchmark pools cheat chunks **per type across all players/sessions**
+   automatically, so cross-player numbers appear with no extra wiring.
+
+---
+
 ## Pipeline integration (drop-in)
 
-Real cheat sessions carry `cheat_label` + `cheat_segments` → identical schema to
-`data/synthetic/` → `pipeline.adversarial.benchmark`, the LSTM-AE, and the streaming engine
-ingest them **unchanged**. Then:
+Real cheat sessions carry `cheat_segments_typed` + `cheat_segments` + `cheat_label` →
+superset of the `data/synthetic/` schema (the untyped union is still present), so
+`pipeline.adversarial.benchmark`, the LSTM-AE, and the streaming engine ingest them
+**unchanged**. Then:
 
 1. QC with `scripts/validate_recordings.py` (extend it to accept/validate the cheat fields).
-2. Re-run `python -m pipeline.adversarial.benchmark` → chunk- **and** session-level AUC, now
-   on real cheats (the headline number drops the "synthetic" caveat).
+2. Re-run `python -m pipeline.adversarial.benchmark --data-dir data/raw --lstm-chunk-only`
+   → per-cheat-type × per-difficulty chunk AUC on real cheats (the headline number drops the
+   "synthetic" caveat).
 3. **Re-attempt Phase 4.1:** with continuous real cheating, session-level aggregation of the
    chunk signal should separate (most chunks elevated, not a sparse few) — build the live
    session-risk then, on data that supports it.
-4. Label with `python -m scripts.label_cheat_segments <session>.json` (built) — derives
-   `cheat_label` + `cheat_segments` from the in-band toggle keys and strips the control keys.
+4. Label with `python -m scripts.label_cheat_segments <session>.json --difficulty <d>`
+   (built) — derives typed `cheat_segments_typed` (+ untyped union + `cheat_labels`) from the
+   in-band toggle keys and strips the control keys.
 
 ---
 

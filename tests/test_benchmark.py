@@ -11,12 +11,17 @@ and the smoke tests in test_lstm_ae / test_streaming.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
 from pipeline.adversarial.benchmark import (
     _build_detectors,
+    _chunk_cheat_labels,
     _detection_rate_at_fpr,
+    _session_difficulty,
+    _typed_segments,
     compute_pr_curves,
     compute_roc_curves,
     run_benchmark,
@@ -132,3 +137,105 @@ class TestCurves:
         df = _synthetic_feature_frame()
         curves = compute_roc_curves(df, aggregation="window")
         assert len(curves) == 9
+
+
+# ---------------------------------------------------------------------------
+# Typed cheat-segment helpers (per-type / per-difficulty labelling)
+# ---------------------------------------------------------------------------
+
+
+class TestTypedSegments:
+    def test_prefers_typed_field(self):
+        data = {
+            "cheat_segments_typed": [
+                {"start_ms": 0.0, "end_ms": 10.0, "cheat": "aimbot"},
+                {"start_ms": 20.0, "end_ms": 30.0, "cheat": "macro"},
+            ],
+            "cheat_segments": [[0.0, 30.0]],  # should be ignored
+            "cheat_label": "mixed",
+        }
+        assert _typed_segments(data) == [
+            (0.0, 10.0, "aimbot"),
+            (20.0, 30.0, "macro"),
+        ]
+
+    def test_fallback_to_untyped_plus_label(self):
+        # The synthetic dataset has no typed field — pair segs with cheat_label.
+        data = {"cheat_segments": [[0.0, 5.0], [10.0, 15.0]], "cheat_label": "aimbot"}
+        assert _typed_segments(data) == [
+            (0.0, 5.0, "aimbot"),
+            (10.0, 15.0, "aimbot"),
+        ]
+
+    def test_legit_session_has_no_segments(self):
+        assert _typed_segments({"cheat_segments": [], "cheat_label": "legit"}) == []
+        assert _typed_segments({}) == []
+
+    def test_drop_accidental(self):
+        data = {
+            "cheat_segments_typed": [
+                {"start_ms": 0.0, "end_ms": 10.0, "cheat": "aimbot"},
+                {
+                    "start_ms": 20.0,
+                    "end_ms": 22.0,
+                    "cheat": "macro",
+                    "accidental": True,
+                },
+            ]
+        }
+        assert _typed_segments(data, drop_accidental=True) == [(0.0, 10.0, "aimbot")]
+        # default keeps the accidental span
+        assert len(_typed_segments(data)) == 2
+
+
+class TestChunkCheatLabels:
+    def _events(self, n):
+        return {"events": [{"t": float(i)} for i in range(n)]}
+
+    def test_clean_when_no_segments(self):
+        data = self._events(6)
+        labels = _chunk_cheat_labels(data, chunk_length=2, n_chunks=3)
+        assert list(labels) == ["", "", ""]
+
+    def test_type_attribution_by_overlap(self):
+        # events at t=0..5; aimbot covers t in [0,1], macro covers t in [4,5]
+        data = self._events(6)
+        data["cheat_segments_typed"] = [
+            {"start_ms": 0.0, "end_ms": 1.0, "cheat": "aimbot"},
+            {"start_ms": 4.0, "end_ms": 5.0, "cheat": "macro"},
+        ]
+        labels = _chunk_cheat_labels(data, chunk_length=2, n_chunks=3)
+        # chunk0=t{0,1}->aimbot, chunk1=t{2,3}->clean, chunk2=t{4,5}->macro
+        assert list(labels) == ["aimbot", "", "macro"]
+
+    def test_majority_wins_within_chunk(self):
+        # chunk of 4 events: 3 in triggerbot, 1 in aimbot -> triggerbot
+        data = self._events(4)
+        data["cheat_segments_typed"] = [
+            {"start_ms": 0.0, "end_ms": 0.0, "cheat": "aimbot"},
+            {"start_ms": 1.0, "end_ms": 3.0, "cheat": "triggerbot"},
+        ]
+        labels = _chunk_cheat_labels(data, chunk_length=4, n_chunks=1)
+        assert list(labels) == ["triggerbot"]
+
+    def test_fallback_single_type_matches_binary(self):
+        # No typed field: every cheat-bearing chunk gets the session label.
+        data = self._events(6)
+        data["cheat_segments"] = [[0.0, 1.0]]
+        data["cheat_label"] = "aimbot"
+        labels = _chunk_cheat_labels(data, chunk_length=2, n_chunks=3)
+        assert list(labels) == ["aimbot", "", ""]
+
+
+class TestSessionDifficulty:
+    def test_json_field_wins(self):
+        assert (
+            _session_difficulty({"difficulty": "Obvious"}, Path("x.json")) == "obvious"
+        )
+
+    def test_parses_synthetic_filename(self):
+        p = Path("20260525T173638_shotik_gta5_25d4f2b7_aimbot_medium.json")
+        assert _session_difficulty({}, p) == "medium"
+
+    def test_none_when_unknown(self):
+        assert _session_difficulty({}, Path("legit_session.json")) is None
