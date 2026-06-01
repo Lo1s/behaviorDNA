@@ -2,4 +2,5 @@
 # Install on your Windows host (NOT in WSL):
 # pip install -r requirements-collector.txt
 
-pynput>=1.7
+pynput>=1.7        # recorder + cheat_sim hotkey/mouse listeners
+numpy>=1.24        # cheat_sim live-cheat planners (rng-seeded snap/burst/macro)
