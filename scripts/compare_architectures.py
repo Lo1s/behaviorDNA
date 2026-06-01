@@ -8,13 +8,24 @@ loop on the *same* legit chunks and evaluated with the *same* chunk-AUC metric.
 Reports, per model: parameter count, train time, best val reconstruction loss,
 the train/val overfit gap, and chunk ROC AUC per cheat type. The point is the
 honest comparison at this data scale (18 sessions) — capacity is not the
-bottleneck — not to crown a winner. Re-run after real cheat recordings land to
-see whether the ranking changes.
+bottleneck — not to crown a winner.
 
-Outputs `reports/architecture_comparison.json` + `reports/figures/arch_comparison.png`.
+All three train on the same legit chunks (real sessions in data/raw, cheat
+sessions excluded). ``--eval-data`` picks the cheat eval set: ``synthetic``
+(default) or ``real`` — the labelled cheat sessions in data/raw, bucketed per
+type via their ``cheat_segments_typed``. Real-eval outputs are written to
+``*_real.{json,png}`` so they sit alongside the synthetic ones.
+
+Note (real eval): the legit baseline there includes the AE's own legit training
+sessions, so absolute AUCs are mildly optimistic — but the *ranking* across the
+three backbones is unaffected (same baseline for all).
+
+Outputs `reports/architecture_comparison[_real].json` +
+`reports/figures/arch_comparison[_real].png`.
 
 Usage:
     python -m scripts.compare_architectures --epochs 25
+    python -m scripts.compare_architectures --epochs 25 --eval-data real
 """
 
 from __future__ import annotations
@@ -32,6 +43,7 @@ from sklearn.metrics import roc_auc_score
 from torch import nn
 from torch.utils.data import DataLoader
 
+from pipeline.adversarial.benchmark import _chunk_cheat_labels, _typed_segments
 from pipeline.models.lstm_ae import LSTMAutoencoder, score_sequences
 from pipeline.models.tcn_ae import TCNAutoencoder
 from pipeline.models.transformer_ae import TransformerAutoencoder
@@ -58,10 +70,18 @@ def _device() -> str:
 
 
 def _load_legit_tensors() -> list[np.ndarray]:
+    """Legit-only training tensors from data/raw.
+
+    Skips any cheat sessions now living in data/raw (those carry cheat spans) so
+    the reconstruction AE trains on genuine legit play only.
+    """
     out = []
     for p in sorted(RAW.glob("*.json")):
         with open(p, encoding="utf-8") as f:
-            t = session_to_event_tensor(json.load(f))
+            d = json.load(f)
+        if _typed_segments(d):  # has cheat spans → not a legit training session
+            continue
+        t = session_to_event_tensor(d)
         if len(t):
             out.append(t)
     return out
@@ -136,31 +156,31 @@ def train_ae(
     }
 
 
-def _synthetic_chunks(stats: dict):
-    """Per cheat type: (cheat-flagged chunks, legit chunks) pooled across files."""
+def _eval_chunks(stats: dict, data_dir: Path):
+    """Per cheat type: (cheat chunks of that type, legit chunks) pooled across files.
+
+    Resolves each chunk's cheat TYPE via ``cheat_segments_typed`` (falling back
+    to the untyped ``cheat_segments`` + session ``cheat_label``), so a single
+    real multi-cheat session contributes chunks to aimbot/triggerbot/macro
+    separately. Clean chunks (no cheat overlap) go to the legit baseline. On the
+    synthetic single-type dataset this is identical to the old binary flagging.
+    """
     legit, cheat = [], {c: [] for c in CHEATS}
-    for p in sorted(SYN.glob("*.json")):
+    for p in sorted(data_dir.glob("*.json")):
         with open(p, encoding="utf-8") as f:
             d = json.load(f)
-        label = d.get("cheat_label", "legit")
         t = session_to_event_tensor(d)
         if len(t) < CHUNK:
             continue
         norm = apply_normalizer(t, stats)
         n = len(norm) // CHUNK
         chunks = np.stack([norm[i * CHUNK : (i + 1) * CHUNK] for i in range(n)])
-        flags = np.zeros(n, dtype=bool)
-        segs = d.get("cheat_segments") or []
-        if segs and d.get("events"):
-            times = np.array([e.get("t", 0.0) for e in d["events"]])
-            in_seg = np.zeros(len(times), dtype=bool)
-            for a, b in segs:
-                in_seg |= (times >= a) & (times <= b)
-            for i in range(n):
-                flags[i] = in_seg[i * CHUNK : (i + 1) * CHUNK].any()
-        legit.append(chunks[~flags])
-        if label in cheat:
-            cheat[label].append(chunks[flags])
+        types = _chunk_cheat_labels(d, CHUNK, n)
+        legit.append(chunks[types == ""])
+        for c in CHEATS:
+            sel = chunks[types == c]
+            if len(sel):
+                cheat[c].append(sel)
     legit = np.concatenate(legit) if legit else np.empty((0, CHUNK, 8), np.float32)
     cheat = {
         c: (np.concatenate(v) if v else np.empty((0, CHUNK, 8), np.float32))
@@ -187,6 +207,13 @@ def run(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compare sequence-AE architectures")
     parser.add_argument("--epochs", type=int, default=25)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument(
+        "--eval-data",
+        choices=["synthetic", "real"],
+        default="synthetic",
+        help="evaluate chunk AUC on synthetic cheats (default) or the real "
+        "labelled cheat sessions in data/raw",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(
         format="%(asctime)s [%(levelname)s] %(message)s",
@@ -196,11 +223,18 @@ def run(argv: list[str] | None = None) -> int:
     torch.manual_seed(SEED)
     np.random.seed(SEED)
 
+    eval_dir = SYN if args.eval_data == "synthetic" else RAW
+    out_json = OUT_JSON if args.eval_data == "synthetic" else _real_path(OUT_JSON)
+    out_fig = OUT_FIG if args.eval_data == "synthetic" else _real_path(OUT_FIG)
+
     log.info("Building loaders (device=%s)…", _device())
     tl, vl, stats = _build_loaders()
-    legit, cheat = _synthetic_chunks(stats)
+    legit, cheat = _eval_chunks(stats, eval_dir)
     log.info(
-        "Eval chunks: %d legit | %s", len(legit), {c: len(cheat[c]) for c in CHEATS}
+        "Eval (%s) chunks: %d legit | %s",
+        args.eval_data,
+        len(legit),
+        {c: len(cheat[c]) for c in CHEATS},
     )
 
     builders = {
@@ -233,15 +267,22 @@ def run(argv: list[str] | None = None) -> int:
             {c: round(auc[c], 3) for c in CHEATS},
         )
 
-    OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
-    with open(OUT_JSON, "w") as f:
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_json, "w") as f:
         json.dump(results, f, indent=2)
-    _render_figure(results)
-    log.info("Wrote %s and %s", OUT_JSON, OUT_FIG)
+    _render_figure(results, out_fig, args.eval_data)
+    log.info("Wrote %s and %s", out_json, out_fig)
     return 0
 
 
-def _render_figure(results: dict) -> None:
+def _real_path(p: Path) -> Path:
+    """Sibling output path tagged for the real-cheat eval (…_real.<ext>)."""
+    return p.with_name(f"{p.stem}_real{p.suffix}")
+
+
+def _render_figure(
+    results: dict, out_fig: Path = OUT_FIG, eval_data: str = "synthetic"
+) -> None:
     import matplotlib
 
     matplotlib.use("Agg")
@@ -266,14 +307,18 @@ def _render_figure(results: dict) -> None:
     ax.set_xticklabels(CHEATS)
     ax.set_ylabel("chunk-level ROC AUC")
     ax.set_ylim(0, 1.0)
+    cheat_src = (
+        "real labelled cheats (data/raw)" if eval_data == "real" else "synthetic cheats"
+    )
     ax.set_title(
-        "Sequence-AE architecture comparison — chunk-level cheat detection\n(same training loop, same eval; 18 real legit sessions + synthetic cheats)"
+        "Sequence-AE architecture comparison — chunk-level cheat detection\n"
+        f"(same training loop, same eval; 18 real legit sessions + {cheat_src})"
     )
     ax.legend(fontsize=8, loc="lower right")
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
-    OUT_FIG.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUT_FIG, dpi=110, bbox_inches="tight")
+    out_fig.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_fig, dpi=110, bbox_inches="tight")
     plt.close(fig)
 
 
