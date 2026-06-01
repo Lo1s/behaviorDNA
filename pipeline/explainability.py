@@ -59,11 +59,22 @@ def mean_abs_shap(values, feature_cols, classes) -> pd.DataFrame:
     ``values`` is the array from a TreeExplainer: ``(n_samples, n_features,
     n_classes)`` for multiclass, or ``(n_samples, n_features)`` for a single
     output. Each cell is the mean absolute SHAP value — a global importance.
+
+    Binary classifiers are the single-output case: SHAP emits one array because
+    one class's contribution is exactly the negative of the other's, so mean
+    |SHAP| is identical for both. We therefore label that single column for the
+    *pair* it separates (``"a vs b"``) rather than mislabelling it with one
+    class name — it is each class's importance equally.
     """
     values = np.asarray(values)
     if values.ndim == 2:
         imp = np.abs(values).mean(axis=0)  # (n_features,)
-        col = classes[0] if classes is not None and len(classes) else "importance"
+        if classes is not None and len(classes) == 2:
+            col = f"{classes[0]} vs {classes[1]}"
+        elif classes is not None and len(classes):
+            col = classes[0]
+        else:
+            col = "importance"
         return pd.DataFrame({col: imp}, index=list(feature_cols))
     imp = np.abs(values).mean(axis=0)  # (n_features, n_classes)
     return pd.DataFrame(imp, index=list(feature_cols), columns=list(classes))

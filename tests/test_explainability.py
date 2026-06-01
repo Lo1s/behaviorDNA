@@ -57,11 +57,19 @@ class TestTreeShap:
         assert imp.sum(axis=1).idxmax() == "f0"
 
     def test_mean_abs_shap_handles_2d_values(self):
-        # Single-output (binary/regression) shape (n, feat) → one column
+        # Single-output (regression / one class) shape (n, feat) → one column
         vals = np.array([[1.0, -2.0], [3.0, 0.0]])
         out = mean_abs_shap(vals, ["a", "b"], ["pos"])
         assert out.shape == (2, 1)
         assert out.loc["b", "pos"] == 1.0  # mean(|-2|, |0|)
+
+    def test_mean_abs_shap_binary_pair_column(self):
+        # Binary classifiers emit one SHAP array; the column names the *pair*
+        # it separates, not a single (mislabelled) class.
+        vals = np.array([[1.0, -2.0], [3.0, 0.0]])
+        out = mean_abs_shap(vals, ["a", "b"], ["dninix", "hydra"])
+        assert list(out.columns) == ["dninix vs hydra"]
+        assert out.loc["a", "dninix vs hydra"] == 2.0  # mean(|1|, |3|)
 
 
 # ---------------------------------------------------------------------------
