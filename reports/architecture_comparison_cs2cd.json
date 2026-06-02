@@ -1,0 +1,26 @@
+{
+  "LSTM-AE": {
+    "params": 193812,
+    "train_time_s": 1.0,
+    "train_loss": 0.83674,
+    "val_loss": 0.31782,
+    "overfit_gap": -0.51892,
+    "chunk_auc": 0.7234122287968442
+  },
+  "TCN-AE": {
+    "params": 77716,
+    "train_time_s": 0.8,
+    "train_loss": 0.33597,
+    "val_loss": 0.24948,
+    "overfit_gap": -0.08649,
+    "chunk_auc": 0.7221038790269559
+  },
+  "Transformer-AE": {
+    "params": 206804,
+    "train_time_s": 0.9,
+    "train_loss": 0.41492,
+    "val_loss": 0.27117,
+    "overfit_gap": -0.14375,
+    "chunk_auc": 0.7224852071005917
+  }
+}

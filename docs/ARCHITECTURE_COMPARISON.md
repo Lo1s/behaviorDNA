@@ -61,13 +61,45 @@ these sit a touch below the `--lstm-chunk-only` numbers.)
   ranking is **supervised** training on the real labels — but with 3 cheat
   sessions / 1 player it would overfit; it waits on more (cross-player) data.
 
+## External dataset: CS2CD (2026-06-02)
+
+A third, fully **independent** check on a different game: train each backbone on
+the **CS2CD** (Counter-Strike 2 cheat-detection) dataset's *legit* mouse stream
+and score chunk-level cheat AUC. `python -m scripts.benchmark_cs2cd_ae --epochs 25`.
+
+CS2CD is per-tick CS2 telemetry (`data/external/cs2cd/`, 25k legit + 25k cheat
+ticks, **10 players**). The labelled file interleaves each player's cheat-match
+and clean-match by tick, so we group by `(steamid, cheater_present)` to recover
+contiguous same-label streams (→ 390 legit + 390 cheat 64-tick chunks), encode a
+compact `[dx, dy, fire, rightclick]` tensor, and run the same loop + metric.
+
+| Model | Params | Val recon loss | Cheat chunk AUC |
+|---|---|---|---|
+| **LSTM-AE** | 194k | 0.318 | **0.723** |
+| **TCN-AE** | **78k** | **0.250** | 0.722 |
+| **Transformer-AE** | 207k | 0.271 | 0.722 |
+
+(1 run, 25 epochs, RTX 3070. `reports/figures/arch_comparison_cs2cd.png`.)
+
+**What it adds:**
+- **All three are tied to within 0.001** on a totally independent game/engine and
+  10 players — the strongest confirmation yet that **architecture is not the
+  lever; data is.** Same story across synthetic GTA, real GTA, and now CS2.
+- The chunk-level AE reaches **~0.72 on real CS2 cheats** — higher than the
+  toggled real-GTA cheats (0.55–0.63), and it shows the reconstruction approach
+  **transfers to a different title** when trained on that title's legit play.
+- Caveats: within-CS2CD (not cross-game transfer — the GTA-trained model is *not*
+  reused; feature spaces differ); legit eval baseline overlaps training (mildly
+  optimistic); `cheater_present` is coarse (match-level), so 0.72 is a floor on a
+  noisy label. The architecture *ranking* is unaffected by all three.
+
 ## Recommendation
 
 Keep the **LSTM-AE** in production: it's the incumbent, fully integrated
 (streaming, persistence, explainability), and statistically tied with the
-Transformer on **both** synthetic and now **real** cheats. There is **no
-evidence a different backbone would help** — the gap is data, not architecture,
-so no change is made on noise.
+Transformer on **synthetic GTA, real GTA, and external CS2** cheats alike. There
+is **no evidence a different backbone would help** — the gap is data, not
+architecture, so no change is made on noise.
 
 ## Revisit after real cheat data (tracked)
 
