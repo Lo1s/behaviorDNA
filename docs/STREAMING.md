@@ -184,7 +184,7 @@ Produces `reports/figures/phase4_chunk_detection.png` — the per-cheat-type chu
 | `tests/test_streaming.py` | 14 tests covering state machine + WebSocket via FastAPI TestClient |
 | `tests/test_replay_session.py` | 4 tests for cheat injection + offline replay JSONL output |
 
-The full suite (234 tests) passes. The streaming pipeline runs entirely on the RTX 3070 via the persisted LSTM-AE artifact and falls back to CPU automatically.
+The full suite (317 tests) passes. The streaming pipeline runs entirely on the RTX 3070 via the persisted LSTM-AE artifact and falls back to CPU automatically.
 
 ---
 

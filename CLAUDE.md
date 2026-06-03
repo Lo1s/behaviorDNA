@@ -19,7 +19,7 @@ dvc repro
 dvc repro features
 
 # Tests
-pytest -q                                 # full suite (~3s, ~100 tests)
+pytest -q                                 # full suite (~317 tests)
 pytest tests/test_features.py::test_x     # single test
 pytest -q --no-header -k adversarial      # by keyword
 

@@ -10,24 +10,43 @@
 
 ![BehaviorDNA chunk-level cheat detection](reports/figures/phase4_chunk_detection.png)
 
-*Chunk-level cheat detection on **18 real GTA sessions** (3 players). The LSTM autoencoder's reconstruction error separates injected-cheat chunks (coloured) from legit-behaviour chunks (green): triggerbot ROC AUC 0.94, aimbot 0.80, macro 0.61 — while hand-crafted window features stay at chance for aimbot. Reproduce with `python -m scripts.build_phase4_demo`. See [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) and [docs/STREAMING.md](docs/STREAMING.md).*
+*Chunk-level cheat detection — **synthetic cheats injected into 18 real GTA legit sessions** (the approach proof). The LSTM autoencoder's reconstruction error separates cheat chunks (coloured) from legit-behaviour chunks (green): triggerbot ROC AUC 0.94, aimbot 0.80, macro 0.61 — while hand-crafted window features stay at chance for aimbot. The approach is **also validated on real recorded cheats and on a second game (CS2)** — see [Results](#results-at-a-glance). Reproduce with `python -m scripts.build_phase4_demo`. See [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) and [docs/STREAMING.md](docs/STREAMING.md).*
 
-> **Data status.** Headline numbers are now measured on real GTA gameplay (18 sessions, 3 players). The chunk-level detector works on real data; the *session-level* live-risk aggregator saturates on the current 18-session calibration set and is being reworked (Phase 4.1 — see [docs/STREAMING.md](docs/STREAMING.md#what-works-and-what-doesnt-honest)).
+> **Data status.** Measured on real GTA gameplay (18 legit sessions, 3 players) + real **recorded** cheats (a controllable offline harness, [docs/CHEAT_DATA_COLLECTION.md](docs/CHEAT_DATA_COLLECTION.md)) + an **external** CS2 cheat dataset. The chunk-level detector works on real data and transfers across games; the *session-level* live-risk aggregator saturates on the current single-recorder calibration set and is gated pending more (cross-player) data (Phase 4.1 — see [docs/STREAMING.md](docs/STREAMING.md#what-works-and-what-doesnt-honest)).
+
+---
+
+## Highlights — what this demonstrates
+
+- **End-to-end MLOps on *real* data:** custom Windows telemetry recorder → DVC pipeline → training → calibration → drift monitoring → MLflow model registry → FastAPI + ONNX serving + Streamlit dashboard, all CI-tested (**317 tests**).
+- **Deep model where it earns its place:** a sequence autoencoder detects cheats hand-crafted features can't (triggerbot **0.93** chunk AUC vs aimbot **≈ chance** for window features) — and it **transfers to a second game** (Counter-Strike 2, ~0.72) on data I didn't create.
+- **Honest validation over flattering numbers:** caught a real **ONNX-export fidelity bug** via a probability-parity check; *verified* (not assumed) a session-level detection ceiling before building on it; an **ablation** showing the model is over-parameterised at this N; an **architecture study** finding LSTM/TCN/Transformer statistically tied.
+- **Anti-cheat framing throughout:** false-positive/ban-cost reasoning, calibrated probabilities (ECE/Brier), and deliberate, audited model promotion — see the **[Model Card](MODEL_CARD.md)**.
 
 ---
 
 ## Results at a glance
 
-| Task | Result | Notes |
-|---|---|---|
-| Player ID — 3 players (real) | **0.853** acc / 0.862 F1 | per 30 s window |
-| Player ID — same-hardware pair | **0.75** acc | honest biometric (no hardware confound; 0.65 baseline) |
-| Cheat detection — triggerbot | **0.93** chunk ROC AUC | LSTM autoencoder |
-| Cheat detection — aimbot | **0.79** chunk ROC AUC | hand-crafted window features ≈ 0.50 (chance) |
-| Mock → real drift | **20 / 25** features significant | KS + PSI |
-| Inference (sklearn, CPU) | **1.4 ms**/window · ~89k windows/s | real-time at one window per 30 s |
+**Player identification** (behavioural biometric, real GTA, per 30 s window):
 
-📋 **[Model Card](MODEL_CARD.md)** · 🔬 **[Findings](docs/FINDINGS.md)** — the honest results, limitations (small-N over-parameterisation, session-level ceiling, an ONNX-export bug caught by validation), and what each means for anti-cheat. *Numbers are directional at N=18 sessions, not production guarantees.*
+| Setting | Result |
+|---|---|
+| 3 players | **0.853** acc / 0.862 F1 |
+| same-hardware pair *(no hardware confound)* | **0.75** acc (0.65 baseline) — the honest biometric |
+
+**Cheat detection** — chunk-level ROC AUC, validated across three independent settings (hand-crafted window features ≈ 0.50 = chance for aimbot):
+
+| Setting | Result |
+|---|---|
+| Synthetic cheats on real legit — *approach proof* | aimbot 0.79 · **triggerbot 0.93** · macro 0.60 |
+| **External game (CS2CD, 10 players, different engine)** — *generalisation* | **~0.72** on real CS2 cheats |
+| Own *recorded* real cheats (1 player) — *hardest, most honest* | aimbot 0.52 · triggerbot 0.60 · macro 0.57 |
+
+LSTM-AE vs TCN-AE vs Transformer-AE are **statistically tied in every setting** → capacity isn't the bottleneck, data is ([ARCHITECTURE_COMPARISON.md](docs/ARCHITECTURE_COMPARISON.md)).
+
+**Engineering:** sklearn inference **1.4 ms**/window (~89k windows/s — real-time) · mock→real **drift 20/25 features** significant (KS+PSI) · MLflow registry + CI + 317 tests.
+
+🧭 **Start here:** **[Findings](docs/FINDINGS.md)** (the honest results in one page) → **[Model Card](MODEL_CARD.md)** (intended use, limits, ban-cost) → `notebooks/12_explainability.ipynb` (SHAP + per-channel attribution) → `docs/ARCHITECTURE_COMPARISON.md`. *Numbers are directional at this data scale (one cheat recorder, 3 players), not production guarantees.*
 
 ---
 
