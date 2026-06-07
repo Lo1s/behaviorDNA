@@ -46,7 +46,7 @@ LSTM-AE vs TCN-AE vs Transformer-AE are **statistically tied in every setting** 
 
 **Engineering:** sklearn inference **1.4 ms**/window (~89k windows/s — real-time) · mock→real **drift 20/25 features** significant (KS+PSI) · MLflow registry + CI + 317 tests.
 
-🧭 **Start here:** **[Findings](docs/FINDINGS.md)** (the honest results in one page) → **[Model Card](MODEL_CARD.md)** (intended use, limits, ban-cost) → `notebooks/12_explainability.ipynb` (SHAP + per-channel attribution) → `docs/ARCHITECTURE_COMPARISON.md`. *Numbers are directional at this data scale (one cheat recorder, 3 players), not production guarantees.*
+🧭 **Start here:** **[Findings](docs/FINDINGS.md)** (the honest results in one page) → **[Model Card](MODEL_CARD.md)** (intended use, limits, ban-cost) → `notebooks/12_explainability.ipynb` (SHAP + per-channel attribution) → `notebooks/16_architecture_comparison.ipynb` (GPU-live LSTM/TCN/Transformer deep-dive + "is it the split or a real ceiling?" experiments) → `notebooks/17_identification_at_scale.ipynb` (10-player ID on CS2 + "does identity survive cheating?") → `docs/ARCHITECTURE_COMPARISON.md`. *Numbers are directional at this data scale (one cheat recorder, 3 players), not production guarantees.*
 
 ---
 
