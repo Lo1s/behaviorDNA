@@ -126,6 +126,7 @@ META_COLS = [
     "player",
     "game",
     "activity",
+    "is_cheat_session",
     "sensitivity",
     "dpi",
     "recorded_at",
@@ -560,6 +561,8 @@ def run() -> None:
                 "player": sess["player"],
                 "game": sess["game"],
                 "activity": sess.get("activity"),
+                # Defaults to False for old sessions.parquet without the column.
+                "is_cheat_session": bool(sess.get("is_cheat_session", False)),
                 "sensitivity": sess["sensitivity"],
                 "dpi": sess["dpi"],
                 "recorded_at": sess["recorded_at"],

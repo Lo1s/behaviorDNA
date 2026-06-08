@@ -67,11 +67,14 @@ features add little to identification (and the model is already over-parameteris
 clean fix is a **separate cheat-detection feature set / model head** so cheat features can be added
 without touching the identifier. Tracked in [docs/ROADMAP.md](ROADMAP.md) Phase 1.5.
 
-## Data-hygiene note (discovered here)
+## Data-hygiene fix (cheat sessions excluded from identification)
 
-`data/processed/features.parquet` currently includes hydRa's 3 **cheat** sessions as ordinary
-`hydra` identification windows (hydra = 214 windows vs dninix = 108). Per nb17's "identity is erased
-by cheating" finding, these depress the *identification* metric (current ≈ 0.60 vs the README's
-**0.853**, which is a pre-cheat-data snapshot at n_test = 34). The identification split should likely
-**exclude cheat sessions** (you fingerprint players from legit play). Flagged as a follow-up — not
-changed here, since it touches the headline biometric number.
+Cheat sessions were being ingested as ordinary identification windows (hydRa's 3 cheat recordings →
+hydra = 214 windows vs dninix = 108), which — per nb17's "identity is erased by cheating" — depressed
+the *identification* metric. **Fixed:** sessions are now flagged `is_cheat_session` at ingestion
+(`pipeline/ingestion/run.py:_is_cheat_session`), the flag is carried into `features.parquet`, and the
+identification split (`pipeline/features/split.py`) **excludes cheat sessions** — you fingerprint
+players from legit play. Cheat sessions remain available to the cheat-detection / benchmark path
+(which reads `data/raw` directly). Backward-compatible: feature frames lacking the column (old data)
+split unchanged. On legit-only data this is a no-op; with the local cheat recordings present it
+recovers identification from ≈ 0.60 back to legit-only levels.

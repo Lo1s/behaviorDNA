@@ -55,8 +55,22 @@ def split(
     All windows from a given session_id stay in a single fold, and each retained
     player's sessions are split independently so every player appears in every
     non-empty fold. Players with fewer than min_sessions_per_player sessions are
-    excluded first.
+    excluded first. Cheat sessions (``is_cheat_session``) are excluded entirely —
+    identification fingerprints players from legit play, and cheating partially
+    erases the biometric (see notebooks/17).
     """
+    # Drop cheat sessions from the identification set (legit play only).
+    # Guarded for backward compatibility with feature frames lacking the column.
+    if "is_cheat_session" in features_df.columns:
+        cheat_mask = features_df["is_cheat_session"].fillna(False).astype(bool)
+        if cheat_mask.any():
+            log.info(
+                "Excluding %d cheat session(s) / %d window(s) from identification",
+                features_df.loc[cheat_mask, "session_id"].nunique(),
+                int(cheat_mask.sum()),
+            )
+            features_df = features_df[~cheat_mask]
+
     # Filter under-represented players
     session_player = features_df.drop_duplicates("session_id").set_index("session_id")[
         "player"

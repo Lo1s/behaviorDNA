@@ -41,6 +41,39 @@ def make_features_df(n_players=4, n_sessions_per_player=3, n_windows=3) -> pd.Da
 
 
 class TestSplit:
+    def test_cheat_sessions_excluded_from_identification(self):
+        # 3 players × 4 legit sessions, plus one extra cheat session for player0.
+        df = make_features_df(n_players=3, n_sessions_per_player=4)
+        cheat = make_features_df(n_players=1, n_sessions_per_player=1).assign(
+            session_id="p0_cheat", player="player0"
+        )
+        df["is_cheat_session"] = False
+        cheat["is_cheat_session"] = True
+        combined = pd.concat([df, cheat], ignore_index=True)
+
+        train, val, test = split(
+            combined,
+            test_size=0.25,
+            val_size=0.25,
+            random_seed=42,
+            min_sessions_per_player=1,
+        )
+        all_sids = (
+            set(train["session_id"]) | set(val["session_id"]) | set(test["session_id"])
+        )
+        assert "p0_cheat" not in all_sids
+        for fold in (train, val, test):
+            assert not fold["is_cheat_session"].any()
+
+    def test_missing_cheat_column_is_backward_compatible(self):
+        # Frames without the column (old features.parquet) split unchanged.
+        df = make_features_df()  # no is_cheat_session column
+        assert "is_cheat_session" not in df.columns
+        train, val, test = split(
+            df, test_size=0.15, val_size=0.15, random_seed=42, min_sessions_per_player=1
+        )
+        assert len(train) + len(val) + len(test) == len(df)
+
     def test_no_session_crosses_splits(self):
         df = make_features_df()
         train, val, test = split(

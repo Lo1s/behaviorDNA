@@ -73,12 +73,28 @@ def validate_session(data: dict, filepath: Path) -> list:
     return errors
 
 
+def _is_cheat_session(data: dict) -> bool:
+    """True if the session carries cheat activity.
+
+    A session counts as cheat if it has typed or untyped cheat spans, or a
+    session-level ``cheat_label`` that isn't ``legit``. Legit recordings and old
+    / mock sessions (no cheat fields at all) return False. Used downstream to
+    keep cheat sessions out of the *identification* split — you fingerprint
+    players from legit play (nb17: cheating partially erases the biometric).
+    """
+    if data.get("cheat_segments_typed") or data.get("cheat_segments"):
+        return True
+    label = data.get("cheat_label")
+    return bool(label) and str(label).strip().lower() not in ("", "legit")
+
+
 def parse_session_metadata(data: dict, filepath: Path) -> dict:
     return {
         "session_id": data["session_id"],
         "player": data["player"].strip().lower(),
         "game": data["game"].strip().lower().replace(" ", "_"),
         "activity": data.get("activity"),
+        "is_cheat_session": _is_cheat_session(data),
         "polling_rate": data.get("polling_rate"),
         "resolution": data.get("resolution"),
         "grip_style": data.get("grip_style"),

@@ -12,6 +12,7 @@ import pytest
 
 import pipeline.ingestion.run as ingest
 from pipeline.ingestion.run import (
+    _is_cheat_session,
     parse_events,
     parse_session_metadata,
     run,
@@ -117,6 +118,46 @@ class TestParseSessionMetadata:
         assert isinstance(meta["sensitivity"], float)
         assert isinstance(meta["dpi"], int)
         assert isinstance(meta["duration_ms"], float)
+
+    def test_legit_session_not_flagged_as_cheat(self):
+        # Plain legit session (no cheat fields) and explicit legit label.
+        assert (
+            parse_session_metadata(make_session(), DUMMY_PATH)["is_cheat_session"]
+            is False
+        )
+        assert (
+            parse_session_metadata(make_session(cheat_label="legit"), DUMMY_PATH)[
+                "is_cheat_session"
+            ]
+            is False
+        )
+
+    def test_cheat_session_flagged(self):
+        # A non-legit label or any cheat spans mark the session as cheat.
+        assert parse_session_metadata(make_session(cheat_label="mixed"), DUMMY_PATH)[
+            "is_cheat_session"
+        ]
+        assert parse_session_metadata(
+            make_session(cheat_segments_typed=[[1000, 2000, "aimbot"]]), DUMMY_PATH
+        )["is_cheat_session"]
+
+
+class TestIsCheatSession:
+    def test_no_cheat_fields_is_legit(self):
+        assert _is_cheat_session({}) is False
+
+    def test_empty_segments_are_legit(self):
+        assert (
+            _is_cheat_session({"cheat_segments": [], "cheat_label": "legit"}) is False
+        )
+
+    def test_typed_or_untyped_segments_are_cheat(self):
+        assert _is_cheat_session({"cheat_segments_typed": [[0, 1, "macro"]]})
+        assert _is_cheat_session({"cheat_segments": [[0, 1]]})
+
+    def test_non_legit_label_is_cheat(self):
+        assert _is_cheat_session({"cheat_label": "aimbot"})
+        assert _is_cheat_session({"cheat_label": "MIXED"})
 
 
 # ---------------------------------------------------------------------------
