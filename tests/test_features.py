@@ -359,6 +359,99 @@ class TestComputeReactionFeatures:
 
 
 # ---------------------------------------------------------------------------
+# TestPhase15Features  (Phase 1.5 — CS2CD-validated promotions, see notebooks/18)
+# ---------------------------------------------------------------------------
+
+
+class TestPhase15Features:
+    def test_speed_percentiles_nan_for_single_move(self):
+        r = compute_mouse_kinematics(make_mm(n=1), EMPTY_MC, norm_factor=1.0)
+        for k in ("speed_p50", "speed_p90", "speed_p99"):
+            assert math.isnan(r[k])
+
+    def test_speed_percentiles_constant_motion(self):
+        # Constant dx=5 over dt=10 ms, norm_factor=1 → constant speed 0.5 everywhere.
+        r = compute_mouse_kinematics(
+            make_mm(n=8, dx=5, dy=0), EMPTY_MC, norm_factor=1.0
+        )
+        for k in ("speed_p50", "speed_p90", "speed_p99"):
+            assert abs(r[k] - 0.5) < 1e-6
+
+    def test_speed_percentiles_ordered_and_normalized(self):
+        # Increasing step sizes → a spread of speeds; percentiles must be ordered,
+        # and (like the mean) scale as 1 / norm_factor.
+        rows = [
+            {
+                "t": float(i * 10),
+                "event_type": "mouse_move",
+                "x": x,
+                "y": 0.0,
+                "dx": d,
+                "dy": 0,
+                "pressed": None,
+                "key": None,
+            }
+            for i, (x, d) in enumerate(
+                [(0, 0), (1, 1), (3, 2), (8, 5), (20, 12), (60, 40), (160, 100)]
+            )
+        ]
+        mm = pd.DataFrame(rows)
+        r1 = compute_mouse_kinematics(mm, EMPTY_MC, norm_factor=1.0)
+        r2 = compute_mouse_kinematics(mm, EMPTY_MC, norm_factor=2.0)
+        assert r1["speed_p50"] <= r1["speed_p90"] <= r1["speed_p99"]
+        assert abs(r1["speed_p99"] - 2 * r2["speed_p99"]) < 1e-6
+
+    def test_fast_segment_straightness_nan_for_few_points(self):
+        for n in (0, 1, 2, 3):
+            r = compute_trajectory_features(make_mm(n=n), window_duration_ms=30_000.0)
+            assert math.isnan(r["fast_segment_straightness"])
+
+    def test_fast_segment_straightness_one_for_straight_burst(self):
+        # Slow jitter, then a fast straight burst: the fastest 25% of segments are
+        # the straight burst → straightness ≈ 1.0.
+        xs = [0.0, 1.0, 0.0, 1.0, 50.0, 150.0, 300.0, 500.0]
+        rows = [
+            {"t": float(i * 10), "event_type": "mouse_move", "x": x, "y": 0.0}
+            for i, x in enumerate(xs)
+        ]
+        r = compute_trajectory_features(pd.DataFrame(rows), window_duration_ms=30_000.0)
+        assert abs(r["fast_segment_straightness"] - 1.0) < 1e-6
+
+    def test_click_reaction_p5_nan_without_clicks(self):
+        r = compute_reaction_features(make_window_df(mm=make_mm(n=5)))
+        assert math.isnan(r["click_reaction_p5"])
+
+    def test_click_reaction_p5_below_mean_with_one_fast_shot(self):
+        # Reactions [10, 200, 200, 200]: p5 picks up the single superhuman-fast shot,
+        # so it sits well below the mean (the triggerbot tell the mean hides).
+        rows = []
+        for i, (move_t, click_t) in enumerate(
+            [(0, 10), (100, 300), (400, 600), (700, 900)]
+        ):
+            rows.append(
+                {
+                    "t": float(move_t),
+                    "event_type": "mouse_move",
+                    "x": 0,
+                    "y": 0,
+                    "pressed": None,
+                }
+            )
+            rows.append(
+                {
+                    "t": float(click_t),
+                    "event_type": "mouse_click",
+                    "x": 0,
+                    "y": 0,
+                    "pressed": True,
+                }
+            )
+        r = compute_reaction_features(pd.DataFrame(rows))
+        assert r["click_reaction_p5"] < r["click_reaction_mean"]
+        assert r["click_reaction_p5"] < 60.0
+
+
+# ---------------------------------------------------------------------------
 # TestComputeKeystrokePeriodicity  (Phase 1)
 # ---------------------------------------------------------------------------
 

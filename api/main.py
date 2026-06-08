@@ -44,15 +44,19 @@ class FeatureVector(BaseModel):
     # Mouse kinematics
     speed_mean: Optional[float] = None
     speed_std: Optional[float] = None
+    speed_p50: Optional[float] = None
+    speed_p90: Optional[float] = None
+    speed_p99: Optional[float] = None
     accel_mean: Optional[float] = None
     accel_std: Optional[float] = None
     jitter: Optional[float] = None
     click_interval_mean: Optional[float] = None
     click_interval_std: Optional[float] = None
-    # Mouse trajectory (Phase 1)
+    # Mouse trajectory (Phase 1; fast_segment_straightness — Phase 1.5)
     mouse_curvature_mean: Optional[float] = None
     mouse_curvature_std: Optional[float] = None
     path_efficiency: Optional[float] = None
+    fast_segment_straightness: Optional[float] = None
     direction_changes_per_sec: Optional[float] = None
     # Keyboard patterns
     hold_mean: Optional[float] = None
@@ -61,8 +65,9 @@ class FeatureVector(BaseModel):
     iki_std: Optional[float] = None
     burst_rate: Optional[float] = None
     wasd_rhythm: Optional[float] = None
-    # Reaction timing (Phase 1)
+    # Reaction timing (Phase 1; click_reaction_p5 — Phase 1.5)
     click_reaction_mean: Optional[float] = None
+    click_reaction_p5: Optional[float] = None
     inter_click_movement: Optional[float] = None
     # Keystroke geometry (Phase 1)
     keystroke_periodicity: Optional[float] = None

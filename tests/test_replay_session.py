@@ -16,6 +16,7 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
+from pipeline.features.run import FEATURE_COLS
 from pipeline.inference.aggregator import RiskAggregator
 from pipeline.inference.streaming import SessionStreamState
 from scripts.replay_session import inject_cheat_if_requested, replay_offline
@@ -24,7 +25,7 @@ from scripts.replay_session import inject_cheat_if_requested, replay_offline
 def _tiny_stream_state(chunk_length: int = 8) -> SessionStreamState:
     """Build a minimal SessionStreamState without loading the synthetic dataset."""
     rng = np.random.default_rng(0)
-    X = rng.normal(0, 1, (50, 25))
+    X = rng.normal(0, 1, (50, len(FEATURE_COLS)))
     scaler = StandardScaler().fit(X)
     det = IsolationForest(n_estimators=20, contamination=0.05, random_state=0)
     det.fit(scaler.transform(X))

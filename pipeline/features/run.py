@@ -4,8 +4,8 @@ pipeline/features/run.py
 Stage 2 — Feature Engineering: structured Parquet events → behavioral feature windows.
 
 Reads events.parquet and sessions.parquet from data/processed/, slices each session
-into 30-second non-overlapping windows, and computes 25 behavioral features across
-5 groups:
+into 30-second non-overlapping windows, and computes 30 behavioral features across
+5 groups (25 original + 5 Phase-1.5 CS2CD-validated promotions; see FEATURE_COLS):
 
   Mouse kinematics    : speed, acceleration, jitter, click intervals
   Mouse trajectory    : curvature, path efficiency, direction changes  (Phase 1)
@@ -74,19 +74,30 @@ def polling_rate_norm(polling_rate: float | int | None) -> float:
     return REFERENCE_POLLING_RATE / pr
 
 
+# Phase 1.5 signal-research promotions (speed_p50/p90/p99, fast_segment_straightness,
+# click_reaction_p5): validated as cheat-detection signals on the external CS2CD dataset
+# (notebooks/18 — new-only cheat AUC 0.74 > existing-analog 0.71, player-held-out), and
+# neutral-to-better on the (cheat-session-polluted, N=18) GTA identification eval
+# (0.600 → 0.625 acc, within small-N noise). Percentiles describe the speed *distribution*
+# (p99 = peak-flick tail); fast_segment_straightness isolates the brief aimbot snap that
+# the 30 s mean path_efficiency dilutes. See docs/FEATURES.md + docs/SIGNALS.md.
 FEATURE_COLS = [
     # Mouse kinematics
     "speed_mean",
     "speed_std",
+    "speed_p50",
+    "speed_p90",
+    "speed_p99",
     "accel_mean",
     "accel_std",
     "jitter",
     "click_interval_mean",
     "click_interval_std",
-    # Mouse trajectory (Phase 1 — anti-cheat-targeted)
+    # Mouse trajectory (Phase 1 — anti-cheat-targeted; Phase 1.5 — fast_segment_straightness)
     "mouse_curvature_mean",
     "mouse_curvature_std",
     "path_efficiency",
+    "fast_segment_straightness",
     "direction_changes_per_sec",
     # Keyboard patterns
     "hold_mean",
@@ -95,8 +106,9 @@ FEATURE_COLS = [
     "iki_std",
     "burst_rate",
     "wasd_rhythm",
-    # Reaction timing (Phase 1 — anti-cheat-targeted)
+    # Reaction timing (Phase 1 — anti-cheat-targeted; Phase 1.5 — click_reaction_p5)
     "click_reaction_mean",
+    "click_reaction_p5",
     "inter_click_movement",
     # Keystroke geometry (Phase 1 — anti-cheat-targeted)
     "keystroke_periodicity",
@@ -134,6 +146,9 @@ def compute_mouse_kinematics(
     result: dict = {
         "speed_mean": float("nan"),
         "speed_std": float("nan"),
+        "speed_p50": float("nan"),
+        "speed_p90": float("nan"),
+        "speed_p99": float("nan"),
         "accel_mean": float("nan"),
         "accel_std": float("nan"),
         "jitter": float("nan"),
@@ -153,6 +168,15 @@ def compute_mouse_kinematics(
 
         result["speed_mean"] = float(speed.mean())
         result["speed_std"] = float(speed.std())
+
+        # Distribution percentiles — humans have a stable personal speed *distribution*,
+        # and the high tail (p99) is the peak-flick signal an aimbot caps unnaturally.
+        # CS2CD validation (notebooks/18) ranked speed_p99 the top behavioural cheat feature.
+        speed_clean = speed.dropna()
+        if len(speed_clean) > 0:
+            result["speed_p50"] = float(np.percentile(speed_clean, 50))
+            result["speed_p90"] = float(np.percentile(speed_clean, 90))
+            result["speed_p99"] = float(np.percentile(speed_clean, 99))
 
         accel = speed.diff() / safe_dt
         result["accel_mean"] = float(accel.mean())
@@ -310,6 +334,7 @@ def compute_trajectory_features(
         "mouse_curvature_mean": float("nan"),
         "mouse_curvature_std": float("nan"),
         "path_efficiency": float("nan"),
+        "fast_segment_straightness": float("nan"),
         "direction_changes_per_sec": float("nan"),
     }
 
@@ -346,6 +371,17 @@ def compute_trajectory_features(
         displacement = math.sqrt((xs[-1] - xs[0]) ** 2 + (ys[-1] - ys[0]) ** 2)
         result["path_efficiency"] = float(displacement / total_path)
 
+    # Fast-segment straightness: path efficiency over only the fastest 25% of
+    # segments. An aimbot snap is a brief, fast, near-straight burst whose signal
+    # is diluted in the 30 s mean path_efficiency; conditioning on the fast segments
+    # isolates it. Top-2 behavioural cheat feature on CS2CD (see notebooks/18).
+    if len(norms) >= 4:
+        fast = norms > np.percentile(norms, 75)
+        fast_path = float(np.sum(norms[fast]))
+        if fast.any() and fast_path > 1e-6:
+            fast_disp = math.hypot(float(np.sum(vx[fast])), float(np.sum(vy[fast])))
+            result["fast_segment_straightness"] = float(fast_disp / fast_path)
+
     # Direction changes per second (sign flips in either axis)
     if window_duration_ms > 0 and len(vx) >= 2:
         sx = np.sign(vx)
@@ -371,6 +407,7 @@ def compute_reaction_features(window: pd.DataFrame) -> dict:
     """
     result: dict = {
         "click_reaction_mean": float("nan"),
+        "click_reaction_p5": float("nan"),
         "inter_click_movement": float("nan"),
     }
 
@@ -395,6 +432,10 @@ def compute_reaction_features(window: pd.DataFrame) -> dict:
                 reaction_times.append(events_t[i] - last_move_t)
     if reaction_times:
         result["click_reaction_mean"] = float(np.mean(reaction_times))
+        # 5th-percentile reaction: the few superhuman-fast shots are the triggerbot
+        # tell, which the mean dilutes. The percentile-aggregation principle was the
+        # winning pattern on CS2CD (peak/tail stats beat means; see notebooks/18).
+        result["click_reaction_p5"] = float(np.percentile(reaction_times, 5))
 
     # Inter-click movement distance
     click_mask = (types == "mouse_click") & (pressed == True)  # noqa: E712

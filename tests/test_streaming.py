@@ -22,6 +22,7 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
 from api.streaming import streaming_router
+from pipeline.features.run import FEATURE_COLS
 from pipeline.inference.aggregator import RiskAggregator
 from pipeline.inference.streaming import (
     WINDOW_MS,
@@ -48,8 +49,8 @@ def _fitted_aggregator() -> RiskAggregator:
 
 def _fitted_detector_and_scaler():
     rng = np.random.default_rng(0)
-    # 50 legit windows × 25 features
-    X = rng.normal(0, 1, (50, 25))
+    # 50 legit windows × N features (track FEATURE_COLS so feature additions don't break the fixture)
+    X = rng.normal(0, 1, (50, len(FEATURE_COLS)))
     scaler = StandardScaler().fit(X)
     det = IsolationForest(n_estimators=20, contamination=0.05, random_state=0)
     det.fit(scaler.transform(X))

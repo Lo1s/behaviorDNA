@@ -95,7 +95,7 @@ data/splits/
 
 - **Git commits**: do not include a `Co-Authored-By` trailer (user preference).
 - **Plan mode**: substantial features (anything touching multiple modules) should be planned via the existing roadmap in `docs/ROADMAP.md`. Each completed phase updates its checklist and status.
-- **Tutorial-style notebooks**: notebooks 09, 10, 16, 17 (and 11–15) are intentionally written as step-by-step tutorials with diagrams and visualizations — the user uses them as study material, so verbosity is a feature not a bug. Notebooks 16/17 are GPU-live (seeded; absolute AUCs may wobble ~±0.01 run-to-run, ranking is stable).
+- **Tutorial-style notebooks**: notebooks 09, 10, 16, 17, 18 (and 11–15) are intentionally written as step-by-step tutorials with diagrams and visualizations — the user uses them as study material, so verbosity is a feature not a bug. Notebooks 16/17 are GPU-live (seeded; absolute AUCs may wobble ~±0.01 run-to-run, ranking is stable). Notebook 18 (signal-importance research on CS2CD) is CPU-fast.
 - **Pre-commit hooks** auto-run ruff + black + trailing-whitespace + end-of-file-fixer on commit. If a hook modifies files, re-stage and re-commit; don't use `--no-verify`.
 
 ## Where to look

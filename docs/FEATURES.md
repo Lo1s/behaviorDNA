@@ -1,6 +1,7 @@
 # Feature Catalogue
 
-> Per-feature documentation for the 25 production features in [`pipeline/features/run.py`](../pipeline/features/run.py).
+> Per-feature documentation for the 30 production features in [`pipeline/features/run.py`](../pipeline/features/run.py).
+> (25 original + 5 Phase-1.5 promotions validated on the external CS2CD dataset — see [docs/SIGNALS.md](SIGNALS.md) and [notebooks/18](../notebooks/18_signal_importance_cs2.ipynb).)
 >
 > Features are computed per 30-second window per session. Detection benchmarks against synthetic cheats are tracked in [docs/ADVERSARIAL.md](ADVERSARIAL.md); the phased roadmap is in [docs/ROADMAP.md](ROADMAP.md).
 
@@ -8,12 +9,25 @@
 
 | Group | Features | Primary signal |
 |---|---|---|
-| **Mouse kinematics** | `speed_mean`, `speed_std`, `accel_mean`, `accel_std`, `jitter`, `click_interval_mean`, `click_interval_std` | DPI-normalised motion magnitudes |
-| **Mouse trajectory** *(Phase 1)* | `mouse_curvature_mean`, `mouse_curvature_std`, `path_efficiency`, `direction_changes_per_sec` | Geometry — distinguishes smooth aimbot snaps from human micro-corrections |
+| **Mouse kinematics** | `speed_mean`, `speed_std`, `speed_p50`, `speed_p90`, `speed_p99` *(1.5)*, `accel_mean`, `accel_std`, `jitter`, `click_interval_mean`, `click_interval_std` | DPI-normalised motion magnitudes + speed distribution |
+| **Mouse trajectory** *(Phase 1; 1.5)* | `mouse_curvature_mean`, `mouse_curvature_std`, `path_efficiency`, `fast_segment_straightness` *(1.5)*, `direction_changes_per_sec` | Geometry — distinguishes smooth aimbot snaps from human micro-corrections |
 | **Keyboard patterns** | `hold_mean`, `hold_std`, `iki_mean`, `iki_std`, `burst_rate`, `wasd_rhythm` | Press cadence and hold dynamics |
-| **Reaction timing** *(Phase 1)* | `click_reaction_mean`, `inter_click_movement` | Latency-based cheat signature — triggerbots fire at ~0 ms |
+| **Reaction timing** *(Phase 1; 1.5)* | `click_reaction_mean`, `click_reaction_p5` *(1.5)*, `inter_click_movement` | Latency-based cheat signature — triggerbots fire at ~0 ms |
 | **Keystroke geometry** *(Phase 1)* | `keystroke_periodicity` | Regularity of key-press intervals — macros produce CV → 0 |
 | **Session aggregates** | `event_rate`, `mouse_key_ratio`, `active_time_pct`, `scroll_count`, `scroll_direction_ratio` | Coarse behavioural summary |
+
+### Phase 1.5 promotions *(CS2CD-validated — [docs/SIGNALS.md](SIGNALS.md), [notebooks/18](../notebooks/18_signal_importance_cs2.ipynb))*
+
+| Feature | Definition | Anti-cheat relevance |
+|---|---|---|
+| `speed_p50`, `speed_p90`, `speed_p99` | 50th/90th/99th percentiles of the per-move speed series (same DPI normalisation as `speed_mean`) | The **distribution**, not just the mean — `speed_p99` (peak-flick tail) was the top behavioural cheat feature on CS2 (an aimbot caps peak speed unnaturally). Stable personal distribution also aids identity. |
+| `fast_segment_straightness` | Path efficiency (net displacement / path length) computed over only the **fastest 25 %** of mouse segments in the window | Isolates the brief, fast, near-straight **aimbot snap** that the 30 s mean `path_efficiency` dilutes (the documented failure below). 2nd-strongest behavioural cheat feature on CS2. |
+| `click_reaction_p5` | 5th percentile of click-reaction times (vs the `_mean`) | The few **superhuman-fast** shots are the triggerbot tell, which the mean hides. Generalises the percentile-aggregation principle that won on CS2. |
+
+> **Validation + caveat.** On CS2's *real* cheats (player-held-out), new-features-only cheat AUC was
+> **0.74 > 0.71** for the existing-analog set. On the small GTA *identification* eval these are
+> neutral-to-slightly-better (0.600 → 0.625, within N=18 noise) — identification and cheat detection
+> share one `FEATURE_COLS`, which is the trade-off discussed in [docs/SIGNALS.md](SIGNALS.md).
 
 All Phase-1 features were added to close the detection gap demonstrated in Phase 3, where the original 18 features scored AUC ≈ 0.5 against synthetic cheats. After Phase 1 the benchmark improved to AUC 0.87 (triggerbot), 0.68 (macro), 0.53 (aimbot — left for Phase 2 LSTM).
 
