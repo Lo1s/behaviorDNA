@@ -1,5 +1,5 @@
 [core]
-    no_scm = True
+    no_scm = false
     remote = origin
 ['remote "origin"']
     url = https://dagshub.com/Lo1s/behaviorDNA.dvc
