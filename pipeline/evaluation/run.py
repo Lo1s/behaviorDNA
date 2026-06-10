@@ -31,6 +31,7 @@ import pickle
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from pipeline.features.run import ID_FEATURE_COLS
@@ -53,6 +54,37 @@ def _prep_X(df: pd.DataFrame, cols: list[str] = ID_FEATURE_COLS) -> pd.DataFrame
 
 _CLASSIFIER_TYPES = frozenset({"lightgbm", "random_forest", "xgboost", "svc"})
 _ANOMALY_TYPES = frozenset({"isolation_forest", "lof", "one_class_svm"})
+
+# Bootstrap settings for the headline-metric confidence intervals. At this
+# data scale (tens of test windows) a point estimate alone is misleading —
+# the README quotes these intervals next to every headline number.
+N_BOOTSTRAP = 2000
+BOOTSTRAP_SEED = 0
+
+
+def bootstrap_ci(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    metric_fn,
+    n_boot: int = N_BOOTSTRAP,
+    seed: int = BOOTSTRAP_SEED,
+) -> tuple[float, float]:
+    """95% percentile bootstrap CI for metric_fn(y_true, y_pred).
+
+    Resamples test windows with replacement. Window-level resampling is
+    slightly optimistic (windows within a session are correlated), but a
+    session-level cluster bootstrap is too coarse at a handful of test
+    sessions — the honest middle ground at this N, stated as such.
+    """
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    rng = np.random.default_rng(seed)
+    n = len(y_true)
+    stats = np.empty(n_boot)
+    for i in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        stats[i] = metric_fn(y_true[idx], y_pred[idx])
+    return float(np.percentile(stats, 2.5)), float(np.percentile(stats, 97.5))
 
 
 def _evaluate_classifier(
@@ -91,13 +123,23 @@ def _evaluate_classifier(
     cm_df = pd.DataFrame(cm, index=classes, columns=classes)
     cm_df.index.name = "true \\ predicted"
 
+    acc_ci = bootstrap_ci(y_true, y_pred, accuracy_score)
+    f1_ci = bootstrap_ci(
+        y_true,
+        y_pred,
+        lambda t, p: f1_score(t, p, average="weighted", zero_division=0),
+    )
+
     metrics = {
         "evaluated": True,
         "model_type": model_type,
         "test_accuracy": acc,
+        "test_accuracy_ci95": list(acc_ci),
         "precision_weighted": prec,
         "recall_weighted": rec,
         "f1_weighted": f1,
+        "f1_weighted_ci95": list(f1_ci),
+        "n_bootstrap": N_BOOTSTRAP,
         "n_test_windows": len(test_df),
         "n_classes": len(classes),
     }

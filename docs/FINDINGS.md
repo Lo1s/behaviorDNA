@@ -9,11 +9,12 @@ at this scale, not production guarantees.
 
 ### 1. A real behavioural biometric — once you control for hardware
 
-3-class player identification scores **0.853** test accuracy. But two of the
-players (hydra, dninix) were recorded on the **same PC with identical settings**
-— only the human differs. Evaluating *just that pair* gives **0.75** (vs a 0.65
-majority baseline). The third player sits on different hardware and is trivially
-separable, which inflates the 3-class number.
+3-class player identification scores **0.85** test accuracy (95% CI 0.74–0.97,
+window bootstrap — the interval is wide because the test set is 34 windows, and
+we say so). But two of the players (hydra, dninix) were recorded on the **same
+PC with identical settings** — only the human differs. Evaluating *just that
+pair* gives **0.75** (vs a 0.65 majority baseline). The third player sits on
+different hardware and is trivially separable, which inflates the 3-class number.
 
 **So the honest claim is the narrower one:** on identical hardware, where the
 only variable is the person, the model distinguishes two players at ~75% from

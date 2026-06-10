@@ -35,6 +35,11 @@ jobs:
         # 65% floor: run() entrypoints are covered by dvc-repro, not unit tests
         run: pytest tests/ -v --cov=pipeline --cov=api --cov-report=term-missing --cov-fail-under=65
 
+      - name: README results block is in sync with reports
+        # README "Results at a glance" is generated from reports/*.json —
+        # fail the build if someone changed metrics without regenerating it.
+        run: python -m scripts.generate_results --check
+
   dvc-repro:
     runs-on: ubuntu-latest
     needs: lint-and-test

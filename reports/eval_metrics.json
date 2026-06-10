@@ -1,10 +1,19 @@
 {
   "evaluated": true,
   "model_type": "lightgbm",
-  "test_accuracy": 0.7647058823529411,
-  "precision_weighted": 0.8177910324969149,
-  "recall_weighted": 0.7647058823529411,
-  "f1_weighted": 0.7796248934356351,
+  "test_accuracy": 0.8529411764705882,
+  "test_accuracy_ci95": [
+    0.7352941176470589,
+    0.9705882352941176
+  ],
+  "precision_weighted": 0.885972850678733,
+  "recall_weighted": 0.8529411764705882,
+  "f1_weighted": 0.8618319876970396,
+  "f1_weighted_ci95": [
+    0.7469615214506855,
+    0.9700301844875882
+  ],
+  "n_bootstrap": 2000,
   "n_test_windows": 34,
   "n_classes": 3
 }

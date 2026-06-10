@@ -1,25 +1,25 @@
 {
-  "onnx_fidelity_ok": false,
-  "label_agreement": 0.83203125,
-  "probability_mae": 0.12675048394530627,
-  "probability_max_abs": 0.973466056668006,
-  "fraction_of_label_flips_at_near_ties": 0.0,
+  "onnx_fidelity_ok": true,
+  "label_agreement": 1.0,
+  "probability_mae": 1.2175401635155127e-08,
+  "probability_max_abs": 1.2285379069609803e-07,
+  "fraction_of_label_flips_at_near_ties": 1.0,
   "n_features": 25,
   "single_window_latency": {
     "sklearn": {
-      "p50_ms": 1.4039814996067435,
-      "p95_ms": 1.82330720781465,
-      "mean_ms": 1.417733851732919
+      "p50_ms": 0.8890829994925298,
+      "p95_ms": 0.9743223004988975,
+      "mean_ms": 0.8999711896988932
     },
     "onnx": {
-      "p50_ms": 0.015272002201527357,
-      "p95_ms": 0.02444940182613202,
-      "mean_ms": 0.019178163037092116
+      "p50_ms": 0.020354498701635748,
+      "p95_ms": 0.04537499989964999,
+      "mean_ms": 0.025212229034271633
     }
   },
   "throughput_windows_per_s": {
-    "sklearn": 89392.51249092359,
-    "onnx": 388200.2735634638
+    "sklearn": 83615.41396050133,
+    "onnx": 222239.22294328446
   },
-  "onnx_speedup_p50": 91.93172454272766
+  "onnx_speedup_p50": 43.679926119776184
 }

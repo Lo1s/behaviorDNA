@@ -14,16 +14,20 @@ anti-cheat context — their **limitations and the cost of being wrong**.
 
 | | |
 |---|---|
-| **Type** | `LGBMClassifier` (multiclass) on 25 windowed behavioural features |
+| **Type** | `LGBMClassifier` (multiclass) on the 25-feature `ID_FEATURE_COLS` set (decoupled from the cheat detectors' 30 — [docs/SIGNALS.md](docs/SIGNALS.md)) |
 | **Input** | one 30 s window → 25 features (mouse kinematics/trajectory, click dynamics, keyboard, session aggregates), sens/DPI- + polling-normalised |
 | **Output** | player label + calibrated class probabilities |
 | **Code** | `pipeline/training/run.py`, `pipeline/features/run.py` |
 
-**Metrics (real data, held-out test):** accuracy **0.853**, weighted F1 **0.862**
-(3 players, 34 test windows). On the **same-hardware pair** (hydra vs dninix —
-identical PC/settings, only the human differs) accuracy is **0.75** — the honest
-behavioural-biometric number, since the 3-class figure is partly inflated by a
-third player on different hardware ([FINDINGS](docs/FINDINGS.md)).
+**Metrics (real data, held-out test):** accuracy **0.85** (95% CI 0.74–0.97),
+weighted F1 **0.86** (95% CI 0.75–0.97) — 3 players, 34 test windows,
+2000-resample window bootstrap. The intervals are wide because the test set is
+small, and they are quoted for exactly that reason; `reports/eval_metrics.json`
+is the source of truth (the README results block regenerates from it). On the
+**same-hardware pair** (hydra vs dninix — identical PC/settings, only the human
+differs) accuracy is **0.75** — the honest behavioural-biometric number, since
+the 3-class figure is partly inflated by a third player on different hardware
+([FINDINGS](docs/FINDINGS.md)).
 
 **Calibration:** ECE/Brier measured; isotonic improves Brier (0.275→0.224),
 Platt does not (small-N fragility). See `notebooks/13_calibration.ipynb`.
