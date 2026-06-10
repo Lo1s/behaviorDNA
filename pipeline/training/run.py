@@ -547,53 +547,38 @@ def train_one_class_svm(
 
 
 def export_onnx(artifact: dict, out_path: Path) -> None:
-    """Export the trained model to ONNX via skl2onnx.
+    """Export the trained model to ONNX.
 
-    LightGBM requires onnxmltools to register its converter with skl2onnx.
-    Writes empty bytes on ImportError or any conversion failure so the pipeline
-    stays green regardless of dependency availability.
+    LightGBM goes through the float64-faithful composed export in
+    pipeline/onnx_export.py (probability MAE ~1e-8, 100% label agreement —
+    the float32 path documented in docs/FINDINGS.md #7 flips labels). Other
+    sklearn classifiers use the stock skl2onnx pipeline conversion, which is
+    already faithful for them. Writes empty bytes on ImportError or any
+    conversion failure so the pipeline stays green regardless of dependency
+    availability.
     """
     if not artifact.get("trained"):
         out_path.write_bytes(b"")
         return
 
     try:
-        from skl2onnx import convert_sklearn, update_registered_converter
-        from skl2onnx.common.data_types import FloatTensorType
-        from skl2onnx.common.shape_calculator import (
-            calculate_linear_classifier_output_shapes,
-        )
-        from sklearn.pipeline import Pipeline as SKPipeline
-
         model = artifact["model"]
         scaler = artifact["scaler"]
         n_features = len(artifact["feature_cols"])
-        initial_type = [("float_input", FloatTensorType([None, n_features]))]
-        pipe = SKPipeline([("scaler", scaler), ("model", model)])
 
         if artifact["model_type"] == "lightgbm":
-            from lightgbm import LGBMClassifier
-            from onnxmltools.convert.lightgbm.operator_converters.LightGbm import (
-                convert_lightgbm,
-            )
+            from pipeline.onnx_export import convert_lightgbm_pipeline_double
 
-            update_registered_converter(
-                LGBMClassifier,
-                "LightGbmLGBMClassifier",
-                calculate_linear_classifier_output_shapes,
-                convert_lightgbm,
-                options={"nocl": [True, False], "zipmap": [True, False, "columns"]},
-            )
-            onnx_model = convert_sklearn(
-                pipe,
-                initial_types=initial_type,
-                options={"zipmap": False},
-                target_opset={"": 17, "ai.onnx.ml": 3},
-            )
+            onnx_model = convert_lightgbm_pipeline_double(model, scaler, n_features)
         else:
+            from skl2onnx import convert_sklearn
+            from skl2onnx.common.data_types import FloatTensorType
+            from sklearn.pipeline import Pipeline as SKPipeline
+
+            pipe = SKPipeline([("scaler", scaler), ("model", model)])
             onnx_model = convert_sklearn(
                 pipe,
-                initial_types=initial_type,
+                initial_types=[("float_input", FloatTensorType([None, n_features]))],
                 target_opset={"": 17, "ai.onnx.ml": 3},
             )
 
@@ -612,12 +597,13 @@ def export_onnx(artifact: dict, out_path: Path) -> None:
         out_path.write_bytes(b"")
 
 
-def _validate_onnx_fidelity(artifact: dict, out_path: Path, tol: float = 1e-3) -> None:
+def _validate_onnx_fidelity(artifact: dict, out_path: Path, tol: float = 1e-6) -> None:
     """Warn if the exported ONNX probabilities diverge from the sklearn model.
 
-    Catches silent serving bugs (e.g. the onnxmltools/LightGBM multiclass
-    converter mismatch documented in docs/FINDINGS.md) at export time rather
-    than in production. Best-effort: skipped if onnxruntime is unavailable.
+    The regression gate for the serving-fidelity bug documented in
+    docs/FINDINGS.md #7 — re-checked at every export, and enforced hard in CI
+    by tests/test_onnx_export.py. Best-effort here: skipped if onnxruntime is
+    unavailable, and never fails training.
     """
     model = artifact.get("model")
     if model is None or not hasattr(model, "predict_proba"):
@@ -626,26 +612,28 @@ def _validate_onnx_fidelity(artifact: dict, out_path: Path, tol: float = 1e-3) -
         import numpy as _np
         import onnxruntime as _ort
 
+        from pipeline.onnx_export import parity_report
+
         rng = _np.random.default_rng(0)
-        X = rng.normal(size=(64, len(artifact["feature_cols"]))).astype(_np.float64)
-        p_sk = model.predict_proba(artifact["scaler"].transform(_np.asarray(X)))
+        X = rng.normal(size=(256, len(artifact["feature_cols"])))
         sess = _ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
-        name = sess.get_inputs()[0].name
-        p_ox = _np.asarray(
-            sess.run(["probabilities"], {name: X.astype(_np.float32)})[0]
-        )
-        mae = float(_np.abs(p_sk - p_ox).mean())
-        if mae > tol:
+        report = parity_report(artifact, sess, X)
+        if report["probability_mae"] > tol or report["label_agreement"] < 1.0:
             log.warning(
-                "ONNX export fidelity check FAILED: probability MAE %.3f > %.0e — "
-                "the serving graph disagrees with the sklearn model (see "
-                "docs/FINDINGS.md). Do not use models/model.onnx for production "
-                "scoring until resolved.",
-                mae,
+                "ONNX export fidelity check FAILED: probability MAE %.2e (tol %.0e), "
+                "label agreement %.3f — the serving graph disagrees with the sklearn "
+                "model (see docs/FINDINGS.md #7). Do not use models/model.onnx for "
+                "production scoring until resolved.",
+                report["probability_mae"],
                 tol,
+                report["label_agreement"],
             )
         else:
-            log.info("ONNX export fidelity check passed (probability MAE %.2e).", mae)
+            log.info(
+                "ONNX export fidelity check passed (probability MAE %.2e, "
+                "label agreement 100%%).",
+                report["probability_mae"],
+            )
     except ImportError:
         pass
     except Exception as exc:  # never fail training on a diagnostic

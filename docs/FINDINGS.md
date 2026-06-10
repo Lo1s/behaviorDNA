@@ -70,16 +70,31 @@ found, not cherry-picked. (Same small-N calibration fragility is why the Phase-4
 aggregator saturates.)
 → `notebooks/13_calibration.ipynb`
 
-### 7. Validate your serving artifacts — the ONNX export was lying
+### 7. Validate your serving artifacts — the ONNX export was lying (found → diagnosed → fixed)
 
-The exported `model.onnx` (shipped since Phase 4, never checked) is **numerically
-unfaithful**: probability MAE **0.13** vs the sklearn model, ~17% of labels flip,
-from an onnxmltools/LightGBM multiclass-converter incompatibility. Caught by a
-probability-parity check (a sklearn-native export, by contrast, matches to
-<1e-5). The benchmark now gates on this, the figure flags it, and `export_onnx`
-self-validates at export time. sklearn inference is the trustworthy path
+The exported `model.onnx` (shipped since Phase 4, never checked) was **numerically
+unfaithful**: probability MAE **0.27** vs the sklearn model, ~38% of labels
+flipped on a probe. The first hypothesis ("converter bug") was **wrong** — the
+trees converted faithfully. The real diagnosis is more interesting:
+
+1. The ai.onnx.ml `Scaler` op standardises in **float32**, perturbing scaled
+   features by up to ~2e-4 (worst where feature stds are tiny).
+2. The model is **razor-margin sensitive**: trained to 100% train accuracy on
+   187 windows, it memorises via hairline splits — feeding *sklearn itself* the
+   float32-scaled inputs reproduces the exact same 0.27 MAE. Even a 1e-7 input
+   perturbation flips ~15% of test predictions. (The serving bug is finding #5
+   — over-parameterisation — wearing a different hat.)
+
+**Fix:** a composed float64 graph (`pipeline/onnx_export.py`) — `Sub`/`Div`
+scaling in double precision and an ai.onnx.ml v3 `TreeEnsembleClassifier`
+carrying the booster's original float64 thresholds/leaf weights
+(`nodes_values_as_tensor`), re-derived from the booster dump and checksummed
+against the converter's structure. Result: probability MAE **~1e-8**, **100%
+label agreement** on train/val/test and random probes. Regression-gated in CI
+(`tests/test_onnx_export.py`), re-validated at every export, and the inference
+benchmark gates on MAE < 1e-6. sklearn remains the reference path
 (p50 1.40 ms, ~89k windows/s — real-time).
-→ `scripts/benchmark_inference.py`
+→ `pipeline/onnx_export.py`, `scripts/benchmark_inference.py`
 
 ---
 
