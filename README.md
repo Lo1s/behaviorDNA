@@ -8,6 +8,15 @@
 
 ---
 
+![Live chunk-level cheat flags firing during a cheat replay](reports/figures/phase4_chunk_flags.gif)
+
+*15 seconds of the system working: a **triggerbot injected into a real GTA session**, replayed chunk-by-chunk through the LSTM autoencoder. Shaded bands are the injected-cheat ground truth; diamonds are chunks the model flags (reconstruction error above the legit 95th percentile). Reproduce: `python -m scripts.build_phase4_demo --gif`.*
+
+<!-- FUNNEL: drop the hosted Streamlit URL + video link here when live -->
+**▶ See it yourself:** 🚀 **[Run the demo](docs/DEPLOY.md)** — `docker compose up` → dashboard at `:8501` (or one-click on Streamlit Cloud, see [DEPLOY.md](docs/DEPLOY.md)) · 📊 **[Results](#results-at-a-glance)** · 📜 **[The honest findings](docs/FINDINGS.md)**
+
+---
+
 ![BehaviorDNA chunk-level cheat detection](reports/figures/phase4_chunk_detection.png)
 
 *Chunk-level cheat detection — **synthetic cheats injected into 18 real GTA legit sessions** (the approach proof). The LSTM autoencoder's reconstruction error separates cheat chunks (coloured) from legit-behaviour chunks (green): triggerbot ROC AUC 0.94, aimbot 0.80, macro 0.61 — while hand-crafted window features stay at chance for aimbot. The approach is **also validated on real recorded cheats and on a second game (CS2)** — see [Results](#results-at-a-glance). Reproduce with `python -m scripts.build_phase4_demo`. See [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) and [docs/STREAMING.md](docs/STREAMING.md).*
@@ -18,7 +27,7 @@
 
 ## Highlights — what this demonstrates
 
-- **End-to-end MLOps on *real* data:** custom Windows telemetry recorder → DVC pipeline → training → calibration → drift monitoring → MLflow model registry → FastAPI + ONNX serving + Streamlit dashboard, all CI-tested (**345 tests**).
+- **End-to-end MLOps on *real* data:** custom Windows telemetry recorder → DVC pipeline → training → calibration → drift monitoring → MLflow model registry → FastAPI + ONNX serving + Streamlit dashboard, all CI-tested (**340+ tests**).
 - **Deep model where it earns its place:** a sequence autoencoder detects cheats hand-crafted features can't (triggerbot **0.94** chunk AUC vs aimbot **≈ chance** for window features) — and it **transfers to a second game** (Counter-Strike 2, ~0.72) on data I didn't create.
 - **Honest validation over flattering numbers:** found, root-caused and **fixed a real ONNX serving-fidelity bug** (float32 precision flipping an overfit model's predictions — now a bit-faithful float64 export behind a CI regression gate, [finding #7](docs/FINDINGS.md)); *verified* (not assumed) a session-level detection ceiling before building on it; an **ablation** showing the model is over-parameterised at this N; an **architecture study** finding LSTM/TCN/Transformer statistically tied; every headline number ships with a **bootstrap CI**.
 - **Anti-cheat framing throughout:** false-positive/ban-cost reasoning, calibrated probabilities (ECE/Brier), and deliberate, audited model promotion — see the **[Model Card](MODEL_CARD.md)**.

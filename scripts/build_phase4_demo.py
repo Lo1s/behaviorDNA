@@ -20,9 +20,17 @@ and the persisted LSTM-AE in ``models/``.
 
 Output:
     reports/figures/phase4_chunk_detection.png
+    reports/figures/phase4_chunk_flags.gif    (with --gif)
+
+The GIF is the README's 15-second hero: one injected-cheat session replayed
+chunk by chunk, each chunk's reconstruction error landing as a dot — red and
+counted when it crosses the legit-pool p95 threshold. Same honest framing as
+the static figure (a *chunk-level* detector; the shaded band is ground truth,
+the flags are what the model fires).
 
 Usage:
     python -m scripts.build_phase4_demo
+    python -m scripts.build_phase4_demo --gif
     python -m scripts.build_phase4_demo --synthetic-dir data/synthetic --out <path>
 """
 
@@ -186,6 +194,175 @@ def render_chunk_detection(legit, cheat_by_type, out_path: Path) -> None:
     log.info("Wrote %s", out_path)
 
 
+def pick_gif_session(
+    synthetic_dir: Path,
+    model,
+    stats,
+    chunk_length: int,
+    threshold: float,
+    labels: tuple[str, ...] = ("aimbot", "triggerbot"),
+):
+    """Choose the cheat session whose flags will read best in a short replay.
+
+    Scores every candidate session and rates the *viewport that will actually
+    be rendered*: flags should land inside the injected band (hits), not on
+    legit chunks (false flags), with enough cheat chunks to be visible.
+    Returns ``(label, path, scores, is_cheat)``.
+    """
+    best = None
+    for path in sorted(synthetic_dir.glob("*.json")):
+        with open(path, encoding="utf-8") as f:
+            label = json.load(f).get("cheat_label", "legit")
+        if label not in labels:
+            continue
+        res = _chunk_scores(path, model, stats, chunk_length)
+        if res is None:
+            continue
+        scores, is_cheat = res
+        if is_cheat.sum() == 0 or len(scores) < 20:
+            continue
+        lo, hi = _gif_viewport(is_cheat, len(scores))
+        s, c = scores[lo:hi], is_cheat[lo:hi]
+        if c.sum() == 0:
+            continue
+        hit_rate = float((s[c] > threshold).mean())
+        fp_rate = float((s[~c] > threshold).mean())
+        # favour clean in-window separation + enough cheat chunks to see
+        quality = hit_rate - 2.0 * fp_rate + 0.03 * min(int(c.sum()), 12)
+        if best is None or quality > best[0]:
+            best = (quality, label, path, scores, is_cheat)
+    if best is None:
+        return None
+    return best[1], best[2], best[3], best[4]
+
+
+def _gif_viewport(
+    is_cheat: np.ndarray, n: int, context: int = 40, max_chunks: int = 160
+) -> tuple[int, int]:
+    """[start, end) window around the injected-cheat span, with lead-in context.
+
+    Real sessions are thousands of chunks with sparse injection — replaying
+    everything is a blur. Zoom to the cheat region plus enough legit lead-in
+    that the viewer sees the detector staying quiet first.
+    """
+    idx = np.flatnonzero(is_cheat)
+    if len(idx) == 0:
+        return 0, min(n, max_chunks)
+    start = max(0, int(idx[0]) - context)
+    end = min(n, int(idx[-1]) + context + 1)
+    if end - start <= max_chunks:
+        return start, end
+    # span too wide — slide a max_chunks window to the densest cheat cluster,
+    # then pull it back so the viewer gets a quiet lead-in before the flags
+    counts = np.convolve(is_cheat.astype(int), np.ones(max_chunks, dtype=int))
+    best_end = int(np.argmax(counts)) + 1  # window is [best_end-max_chunks, best_end)
+    start = max(0, min(best_end - max_chunks, n - max_chunks))
+    first_in_window = int(np.flatnonzero(is_cheat[start : start + max_chunks])[0])
+    start = max(0, start + first_in_window - context)
+    return start, min(n, start + max_chunks)
+
+
+def render_chunk_flag_gif(
+    scores: np.ndarray,
+    is_cheat: np.ndarray,
+    threshold: float,
+    out_path: Path,
+    cheat_label: str = "triggerbot",
+    duration_s: float = 14.0,
+    max_frames: int = 140,
+) -> None:
+    """Animated replay: chunks stream in, flags fire above the legit-p95 line."""
+    from matplotlib.animation import FuncAnimation, PillowWriter
+
+    lo, hi = _gif_viewport(is_cheat, len(scores))
+    scores = scores[lo:hi]
+    is_cheat = is_cheat[lo:hi]
+    n = len(scores)
+
+    fig, ax = plt.subplots(figsize=(9.2, 4.4))
+    ymax = float(max(scores.max(), threshold) * 1.15)
+    ax.set_xlim(-0.5, n - 0.5)
+    ax.set_ylim(0, ymax)
+    ax.set_xlabel(
+        f"chunk index (64-event chunks; window of {n} chunks around the injection)"
+    )
+    ax.set_ylabel("LSTM-AE reconstruction error")
+    ax.grid(True, alpha=0.3)
+
+    # Ground truth: shade the chunks a cheat was actually injected into.
+    in_band = False
+    for i in range(n + 1):
+        cheat_here = bool(is_cheat[i]) if i < n else False
+        if cheat_here and not in_band:
+            start, in_band = i, True
+        elif not cheat_here and in_band:
+            ax.axvspan(start - 0.5, i - 0.5, color="#e94560", alpha=0.12)
+            in_band = False
+    ax.axhline(
+        threshold,
+        color="#c0392b",
+        linestyle="--",
+        linewidth=1.3,
+        label="flag threshold (95th pct of legit chunks)",
+    )
+    ax.plot(
+        [],
+        [],
+        color="#e94560",
+        alpha=0.25,
+        linewidth=8,
+        label="injected cheat (ground truth)",
+    )
+
+    (trace,) = ax.plot([], [], color="#9aa7b0", linewidth=1.0, zorder=1)
+    ok_dots = ax.scatter(
+        [], [], s=34, color=LEGIT_COLOUR, zorder=2, label="chunk scored legit"
+    )
+    flag_dots = ax.scatter(
+        [], [], s=60, color="#e94560", marker="D", zorder=3, label="⚑ chunk flagged"
+    )
+    counter = ax.text(
+        0.985,
+        0.94,
+        "",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=12,
+        fontweight="bold",
+        color="#c0392b",
+    )
+    ax.set_title(
+        f"Live chunk-level cheat flags — {cheat_label} injected into a real GTA session\n"
+        "LSTM autoencoder reconstruction error, scored as the session streams",
+        fontsize=11,
+    )
+    ax.legend(fontsize=8, loc="upper left")
+    fig.tight_layout()
+
+    xs = np.arange(n)
+    step = max(1, int(np.ceil(n / max_frames)))
+    reveals = list(range(step, n + 1, step))
+    if reveals[-1] != n:
+        reveals.append(n)
+    fps = max(3.0, min(20.0, len(reveals) / duration_s))
+
+    def update(frame: int):
+        upto = reveals[frame]
+        trace.set_data(xs[:upto], scores[:upto])
+        flagged = scores[:upto] > threshold
+        ok_dots.set_offsets(np.c_[xs[:upto][~flagged], scores[:upto][~flagged]])
+        flag_dots.set_offsets(np.c_[xs[:upto][flagged], scores[:upto][flagged]])
+        counter.set_text(f"⚑ {int(flagged.sum())} chunks flagged")
+        return trace, ok_dots, flag_dots, counter
+
+    anim = FuncAnimation(fig, update, frames=len(reveals), blit=True)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    anim.save(str(out_path), writer=PillowWriter(fps=fps))
+    plt.close(fig)
+    log.info("Wrote %s (%d frames @ %.1f fps)", out_path, len(reveals), fps)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Build the Phase-4 chunk-level cheat-detection figure"
@@ -194,6 +371,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model-dir", type=Path, default=MODELS_DIR)
     parser.add_argument(
         "--out", type=Path, default=FIGURES_DIR / "phase4_chunk_detection.png"
+    )
+    parser.add_argument(
+        "--gif",
+        action="store_true",
+        help="also render the animated chunk-flag replay GIF",
+    )
+    parser.add_argument(
+        "--gif-out", type=Path, default=FIGURES_DIR / "phase4_chunk_flags.gif"
     )
     args = parser.parse_args(argv)
 
@@ -226,6 +411,26 @@ def main(argv: list[str] | None = None) -> int:
         log.info("  %s: %d cheat chunks  (legit pool: %d)", c, n, len(legit))
 
     render_chunk_detection(legit, cheat_by_type, args.out)
+
+    if args.gif:
+        threshold = float(np.percentile(legit, 95))
+        picked = pick_gif_session(
+            args.synthetic_dir, model, stats, chunk_length, threshold
+        )
+        if picked is None:
+            log.error("No suitable cheat session for the GIF replay.")
+            return 1
+        gif_label, path, scores, is_cheat = picked
+        log.info(
+            "GIF session: %s [%s] (%d chunks, %d cheat-overlapping)",
+            path.name,
+            gif_label,
+            len(scores),
+            int(is_cheat.sum()),
+        )
+        render_chunk_flag_gif(
+            scores, is_cheat, threshold, args.gif_out, cheat_label=gif_label
+        )
     return 0
 
 
