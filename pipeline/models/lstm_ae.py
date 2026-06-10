@@ -34,8 +34,8 @@ Three public entry points:
 - ``train_lstm_ae(...)`` — full training loop with val-set early stopping
 - ``score_sequences(...)`` — per-chunk reconstruction MSE for inference
 
-The training loop is GPU-aware via ``torch.cuda.is_available()`` and falls
-back to CPU silently. See ``docs/LSTM_AE.md`` for the full write-up.
+The training loop is GPU-aware (CUDA → MPS → CPU) and falls back silently.
+See ``docs/LSTM_AE.md`` for the full write-up.
 """
 
 from __future__ import annotations
@@ -159,13 +159,15 @@ class TrainingHistory:
 
 
 def _select_device(prefer: str = "auto") -> torch.device:
-    """Pick CUDA if available, otherwise CPU. Set ``prefer='cpu'`` to force CPU."""
+    """Pick CUDA > MPS > CPU. Set ``prefer='cpu'`` to force CPU."""
     if prefer == "cpu":
         return torch.device("cpu")
     if prefer == "cuda" or (prefer == "auto" and torch.cuda.is_available()):
         if torch.cuda.is_available():
             return torch.device("cuda")
-        log.warning("CUDA requested but unavailable — falling back to CPU")
+        log.warning("CUDA requested but unavailable — falling back to MPS/CPU")
+    if prefer in ("mps", "auto") and torch.backends.mps.is_available():
+        return torch.device("mps")
     return torch.device("cpu")
 
 
