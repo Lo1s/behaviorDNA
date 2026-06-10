@@ -232,6 +232,7 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 ## Tooling backlog
 
 - [x] **CI pre-ingestion hook** ✅ done — `scripts/validate_recordings.py` now runs as a step in the CI `dvc-repro` job (after `dvc pull`, before `dvc repro`), failing the build on any malformed recording before it can poison the pipeline. See `.github/workflows/ci.yml` + [docs/MLOPS.md](MLOPS.md).
+- [ ] **Regenerate LSTM-AE weights + demo GIF on the GPU desktop (2026-06-10).** The README hero GIF (`reports/figures/phase4_chunk_flags.gif`) was rendered from Mac-retrained weights (MPS, best val_loss 0.584; the canonical GPU run was 0.579 — same seed, different hardware, so the model differs slightly). On the GPU box: `python -m scripts.train_lstm_ae` → `python -m scripts.build_phase4_demo --gif` → eyeball the GIF and commit if it changed (the picked session / flag count may shift). While there, also run the full `pytest -q` in one process — macOS segfaults on a torch+lightgbm OpenMP clash (per-file runs pass; Linux is fine).
 
 ---
 
