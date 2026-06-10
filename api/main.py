@@ -96,15 +96,18 @@ class AnomalyPrediction(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _vec_to_frame(vec: FeatureVector) -> pd.DataFrame:
-    """Convert Pydantic model to a 1-row FEATURE_COLS-named float64 frame.
+def _vec_to_frame(vec: FeatureVector, cols: list[str] = FEATURE_COLS) -> pd.DataFrame:
+    """Convert Pydantic model to a 1-row named float64 frame over ``cols``.
+
+    ``cols`` should be the loaded artifact's ``feature_cols`` — identification
+    and anomaly models use different feature sets (see docs/SIGNALS.md).
 
     A named frame (not a bare array) keeps the persisted scaler + classifier —
     both fitted with feature names — from emitting the sklearn "X does not have
     valid feature names" warning at predict time. None → 0.0 (matches training).
     """
-    vals = {col: float(getattr(vec, col) or 0.0) for col in FEATURE_COLS}
-    return pd.DataFrame([vals], columns=FEATURE_COLS)
+    vals = {col: float(getattr(vec, col) or 0.0) for col in cols}
+    return pd.DataFrame([vals], columns=cols)
 
 
 def _get_artifact(request: Request) -> dict:
@@ -206,7 +209,7 @@ def predict_player(vec: FeatureVector, request: Request) -> PlayerPrediction:
     _require_model_type(artifact, "lightgbm")
     _require_trained(artifact)
 
-    X = _vec_to_frame(vec)
+    X = _vec_to_frame(vec, artifact.get("feature_cols", FEATURE_COLS))
     X_scaled = artifact["scaler"].transform(X)
     model = artifact["model"]
     le = artifact["label_encoder"]
@@ -232,7 +235,7 @@ def predict_anomaly(vec: FeatureVector, request: Request) -> AnomalyPrediction:
     _require_trained(artifact)
 
     # Anomaly scaler/model were fit on nameless numpy (see training/run.py).
-    X = _vec_to_frame(vec).to_numpy()
+    X = _vec_to_frame(vec, artifact.get("feature_cols", FEATURE_COLS)).to_numpy()
     X_scaled = artifact["scaler"].transform(X)
     model = artifact["model"]
 

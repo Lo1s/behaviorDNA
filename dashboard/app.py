@@ -246,9 +246,12 @@ with tab3:
         st.warning("No split data found — run `dvc repro` to generate splits.")
     else:
         train_df = all_data[all_data["split"] == "train"]
-        feat_means = train_df[FEATURE_COLS].mean()
-        feat_mins = train_df[FEATURE_COLS].min()
-        feat_maxs = train_df[FEATURE_COLS].max()
+        # The loaded model's own feature set (identification and cheat models
+        # use different slices of the bank — see docs/SIGNALS.md).
+        model_cols = artifact.get("feature_cols") or FEATURE_COLS
+        feat_means = train_df[model_cols].mean()
+        feat_mins = train_df[model_cols].min()
+        feat_maxs = train_df[model_cols].max()
 
         st.subheader("Adjust behavioral features")
         st.caption(
@@ -258,7 +261,7 @@ with tab3:
 
         values: dict[str, float] = {}
         slider_cols = st.columns(3)
-        for idx, feat in enumerate(FEATURE_COLS):
+        for idx, feat in enumerate(model_cols):
             lo = float(feat_mins[feat])
             hi = float(feat_maxs[feat])
             default = float(feat_means[feat])
@@ -278,9 +281,7 @@ with tab3:
             mdl = artifact["model"]
             # Named frame: the fitted scaler + model carry feature names, so a
             # bare array would trigger the sklearn feature-names warning.
-            x = pd.DataFrame(
-                [{f: values[f] for f in FEATURE_COLS}], columns=FEATURE_COLS
-            )
+            x = pd.DataFrame([{f: values[f] for f in model_cols}], columns=model_cols)
             x_sc = scaler.transform(x)
 
             if model_type == "lightgbm":
@@ -359,7 +360,9 @@ with tab4:
         if model_type == "lightgbm":
             le = artifact["label_encoder"]
             # Named frame → classifier carries feature names (no sklearn warning).
-            x_all = scaler.transform(sess[FEATURE_COLS].fillna(0))
+            x_all = scaler.transform(
+                sess[artifact.get("feature_cols") or FEATURE_COLS].fillna(0)
+            )
             preds = le.inverse_transform(mdl.predict(x_all))
             sess["predicted"] = preds
             actual_player = sess["player"].iloc[0]

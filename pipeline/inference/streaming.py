@@ -41,7 +41,7 @@ import pandas as pd
 from pipeline.adversarial.benchmark import _build_detectors, load_synthetic_features
 from pipeline.constants import WINDOW_MS
 from pipeline.features.run import (
-    FEATURE_COLS,
+    CHEAT_FEATURE_COLS,
     polling_rate_norm,
     process_session_windows,
 )
@@ -145,7 +145,7 @@ def score_window_features(
     same as the training pipeline.
     """
     x_vals = []
-    for col in FEATURE_COLS:
+    for col in CHEAT_FEATURE_COLS:
         v = feature_row.get(col, 0.0)
         if v is None or (isinstance(v, float) and np.isnan(v)):
             v = 0.0
@@ -426,7 +426,7 @@ def build_stream_state(
 
     # Fit the classical detectors on legit-only window features
     feats = load_synthetic_features(synthetic_dir)
-    X = feats[FEATURE_COLS].fillna(0.0).to_numpy()
+    X = feats[CHEAT_FEATURE_COLS].fillna(0.0).to_numpy()
     scaler = StandardScaler().fit(X)
     X_scaled = scaler.transform(X)
     legit_mask = feats["cheat_label"].eq("legit").to_numpy()

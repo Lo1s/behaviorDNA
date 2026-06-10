@@ -24,10 +24,17 @@
 | `fast_segment_straightness` | Path efficiency (net displacement / path length) computed over only the **fastest 25 %** of mouse segments in the window | Isolates the brief, fast, near-straight **aimbot snap** that the 30 s mean `path_efficiency` dilutes (the documented failure below). 2nd-strongest behavioural cheat feature on CS2. |
 | `click_reaction_p5` | 5th percentile of click-reaction times (vs the `_mean`) | The few **superhuman-fast** shots are the triggerbot tell, which the mean hides. Generalises the percentile-aggregation principle that won on CS2. |
 
-> **Validation + caveat.** On CS2's *real* cheats (player-held-out), new-features-only cheat AUC was
+> **Validation.** On CS2's *real* cheats (player-held-out), new-features-only cheat AUC was
 > **0.74 > 0.71** for the existing-analog set. On the small GTA *identification* eval these are
-> neutral-to-slightly-better (0.600 → 0.625, within N=18 noise) — identification and cheat detection
-> share one `FEATURE_COLS`, which is the trade-off discussed in [docs/SIGNALS.md](SIGNALS.md).
+> neutral-to-slightly-better (0.600 → 0.625, within N=18 noise).
+>
+> **Decoupled feature sets.** `FEATURE_COLS` is the full computed bank. The **player identifier**
+> trains on `ID_FEATURE_COLS` (the 25 pre-promotion features every identification study was
+> validated on — the Phase-5d ablation showed it is already over-parameterised at N=18), while the
+> **cheat detectors** use `CHEAT_FEATURE_COLS` (all 30, including the promotions above). This is the
+> decoupling recommended in [docs/SIGNALS.md](SIGNALS.md): cheat-oriented features can now be added
+> without trading against identification accuracy. Each model artifact carries its own
+> `feature_cols`, which downstream consumers (evaluation, API, dashboard) treat as authoritative.
 
 All Phase-1 features were added to close the detection gap demonstrated in Phase 3, where the original 18 features scored AUC ≈ 0.5 against synthetic cheats. After Phase 1 the benchmark improved to AUC 0.87 (triggerbot), 0.68 (macro), 0.53 (aimbot — left for Phase 2 LSTM).
 

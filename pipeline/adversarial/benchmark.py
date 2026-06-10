@@ -43,7 +43,7 @@ from sklearn.svm import OneClassSVM
 
 from pipeline.adversarial.bot_generator import CHEAT_LEGIT
 from pipeline.features.run import (
-    FEATURE_COLS,
+    CHEAT_FEATURE_COLS,
     polling_rate_norm,
     process_session_windows,
 )
@@ -294,7 +294,7 @@ def run_benchmark(
     if detectors is None:
         detectors = _build_detectors()
 
-    X = features_df[FEATURE_COLS].fillna(0.0).to_numpy()
+    X = features_df[CHEAT_FEATURE_COLS].fillna(0.0).to_numpy()
     scaler = StandardScaler().fit(X)
     X_scaled = scaler.transform(X)
 
@@ -356,7 +356,7 @@ def compute_roc_curves(
     if detectors is None:
         detectors = _build_detectors()
 
-    X = features_df[FEATURE_COLS].fillna(0.0).to_numpy()
+    X = features_df[CHEAT_FEATURE_COLS].fillna(0.0).to_numpy()
     scaler = StandardScaler().fit(X)
     X_scaled = scaler.transform(X)
 
@@ -404,7 +404,7 @@ def compute_pr_curves(
     if detectors is None:
         detectors = _build_detectors()
 
-    X = features_df[FEATURE_COLS].fillna(0.0).to_numpy()
+    X = features_df[CHEAT_FEATURE_COLS].fillna(0.0).to_numpy()
     scaler = StandardScaler().fit(X)
     X_scaled = scaler.transform(X)
 
@@ -902,7 +902,7 @@ def _collect_per_session_scores(
     """
     # Classical detectors on 25-D window features
     feats = load_synthetic_features(synthetic_dir)
-    X = feats[FEATURE_COLS].fillna(0.0).to_numpy()
+    X = feats[CHEAT_FEATURE_COLS].fillna(0.0).to_numpy()
     scaler = StandardScaler().fit(X)
     X_scaled = scaler.transform(X)
     legit_mask = feats["cheat_label"].eq(CHEAT_LEGIT).to_numpy()

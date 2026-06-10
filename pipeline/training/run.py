@@ -56,7 +56,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.svm import SVC, OneClassSVM
 
 from pipeline.constants import IDENTIFIER_REGISTRY_NAME
-from pipeline.features.run import FEATURE_COLS
+from pipeline.features.run import CHEAT_FEATURE_COLS, ID_FEATURE_COLS
 
 log = logging.getLogger(__name__)
 
@@ -69,15 +69,19 @@ ONNX_OUT = ROOT / "models" / "model.onnx"
 METRICS_OUT = ROOT / "reports" / "train_metrics.json"
 
 
-def _prep_X(df: pd.DataFrame) -> pd.DataFrame:
-    """Feature matrix as a FEATURE_COLS-named frame.
+def _prep_X(df: pd.DataFrame, cols: list[str] = ID_FEATURE_COLS) -> pd.DataFrame:
+    """Feature matrix as a named frame over the task's feature set.
+
+    Identification models train on ID_FEATURE_COLS, anomaly detectors on
+    CHEAT_FEATURE_COLS (see docs/SIGNALS.md — the sets are decoupled so cheat
+    promotions never trade against identification at small N).
 
     Returning a named frame (not a bare array) lets the scaler + classifier
     record real feature names (``feature_names_in_``), which keeps predict-time
     free of the sklearn "X does not have valid feature names" warning and makes
     SHAP/feature-importance outputs read as real names instead of Column_N.
     """
-    return df[FEATURE_COLS].fillna(0.0)
+    return df[cols].fillna(0.0)
 
 
 def train_lightgbm(
@@ -106,7 +110,7 @@ def train_lightgbm(
                 "task": "identification",
                 "model": None,
                 "scaler": StandardScaler(),
-                "feature_cols": FEATURE_COLS,
+                "feature_cols": ID_FEATURE_COLS,
                 "label_encoder": None,
                 "classes": None,
                 "trained": False,
@@ -141,7 +145,7 @@ def train_lightgbm(
         "task": "identification",
         "model": model,
         "scaler": scaler,
-        "feature_cols": FEATURE_COLS,
+        "feature_cols": ID_FEATURE_COLS,
         "label_encoder": le,
         "classes": list(le.classes_),
         "trained": True,
@@ -173,7 +177,7 @@ def train_isolation_forest(
     # (no SHAP-for-identification use), and naming them makes LOF's novelty mode
     # emit a spurious sklearn feature-names warning. .to_numpy() drops the names.
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(_prep_X(train_df).to_numpy())
+    X_train = scaler.fit_transform(_prep_X(train_df, CHEAT_FEATURE_COLS).to_numpy())
 
     seed = cfg["data"]["random_seed"]
     if_params = dict(cfg["isolation_forest"])
@@ -189,7 +193,7 @@ def train_isolation_forest(
         "task": "anomaly_detection",
         "model": model,
         "scaler": scaler,
-        "feature_cols": FEATURE_COLS,
+        "feature_cols": CHEAT_FEATURE_COLS,
         "label_encoder": None,
         "classes": None,
         "trained": True,
@@ -232,7 +236,7 @@ def train_random_forest(
                 "task": "identification",
                 "model": None,
                 "scaler": StandardScaler(),
-                "feature_cols": FEATURE_COLS,
+                "feature_cols": ID_FEATURE_COLS,
                 "label_encoder": None,
                 "classes": None,
                 "trained": False,
@@ -268,7 +272,7 @@ def train_random_forest(
         "task": "identification",
         "model": model,
         "scaler": scaler,
-        "feature_cols": FEATURE_COLS,
+        "feature_cols": ID_FEATURE_COLS,
         "label_encoder": le,
         "classes": list(le.classes_),
         "trained": True,
@@ -313,7 +317,7 @@ def train_xgboost(
                 "task": "identification",
                 "model": None,
                 "scaler": StandardScaler(),
-                "feature_cols": FEATURE_COLS,
+                "feature_cols": ID_FEATURE_COLS,
                 "label_encoder": None,
                 "classes": None,
                 "trained": False,
@@ -349,7 +353,7 @@ def train_xgboost(
         "task": "identification",
         "model": model,
         "scaler": scaler,
-        "feature_cols": FEATURE_COLS,
+        "feature_cols": ID_FEATURE_COLS,
         "label_encoder": le,
         "classes": list(le.classes_),
         "trained": True,
@@ -396,7 +400,7 @@ def train_svc(
                 "task": "identification",
                 "model": None,
                 "scaler": StandardScaler(),
-                "feature_cols": FEATURE_COLS,
+                "feature_cols": ID_FEATURE_COLS,
                 "label_encoder": None,
                 "classes": None,
                 "trained": False,
@@ -430,7 +434,7 @@ def train_svc(
         "task": "identification",
         "model": model,
         "scaler": scaler,
-        "feature_cols": FEATURE_COLS,
+        "feature_cols": ID_FEATURE_COLS,
         "label_encoder": le,
         "classes": list(le.classes_),
         "trained": True,
@@ -461,7 +465,7 @@ def train_lof(
     # Nameless numpy on purpose — see train_isolation_forest (LOF novelty mode
     # otherwise emits a spurious feature-names warning even on a named frame).
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(_prep_X(train_df).to_numpy())
+    X_train = scaler.fit_transform(_prep_X(train_df, CHEAT_FEATURE_COLS).to_numpy())
 
     lof_params = dict(cfg["lof"])
     model = LocalOutlierFactor(**lof_params, novelty=True)
@@ -476,7 +480,7 @@ def train_lof(
         "task": "anomaly_detection",
         "model": model,
         "scaler": scaler,
-        "feature_cols": FEATURE_COLS,
+        "feature_cols": CHEAT_FEATURE_COLS,
         "label_encoder": None,
         "classes": None,
         "trained": True,
@@ -505,7 +509,7 @@ def train_one_class_svm(
     """Fit StandardScaler + OneClassSVM."""
     # Nameless numpy on purpose — anomaly detectors don't need feature names.
     scaler = StandardScaler()
-    X_train = scaler.fit_transform(_prep_X(train_df).to_numpy())
+    X_train = scaler.fit_transform(_prep_X(train_df, CHEAT_FEATURE_COLS).to_numpy())
 
     ocsvm_params = dict(cfg["one_class_svm"])
     model = OneClassSVM(**ocsvm_params)
@@ -520,7 +524,7 @@ def train_one_class_svm(
         "task": "anomaly_detection",
         "model": model,
         "scaler": scaler,
-        "feature_cols": FEATURE_COLS,
+        "feature_cols": CHEAT_FEATURE_COLS,
         "label_encoder": None,
         "classes": None,
         "trained": True,
@@ -563,7 +567,8 @@ def export_onnx(artifact: dict, out_path: Path) -> None:
 
         model = artifact["model"]
         scaler = artifact["scaler"]
-        initial_type = [("float_input", FloatTensorType([None, len(FEATURE_COLS)]))]
+        n_features = len(artifact["feature_cols"])
+        initial_type = [("float_input", FloatTensorType([None, n_features]))]
         pipe = SKPipeline([("scaler", scaler), ("model", model)])
 
         if artifact["model_type"] == "lightgbm":
@@ -622,7 +627,7 @@ def _validate_onnx_fidelity(artifact: dict, out_path: Path, tol: float = 1e-3) -
         import onnxruntime as _ort
 
         rng = _np.random.default_rng(0)
-        X = rng.normal(size=(64, len(FEATURE_COLS))).astype(_np.float64)
+        X = rng.normal(size=(64, len(artifact["feature_cols"]))).astype(_np.float64)
         p_sk = model.predict_proba(artifact["scaler"].transform(_np.asarray(X)))
         sess = _ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
         name = sess.get_inputs()[0].name
@@ -663,7 +668,7 @@ def log_to_mlflow(artifact: dict, metrics: dict, cfg: dict) -> None:
             mlflow.log_params(
                 {
                     "model_type": artifact["model_type"],
-                    "n_features": len(FEATURE_COLS),
+                    "n_features": len(artifact["feature_cols"]),
                     **{
                         f"{artifact['model_type']}.{k}": v
                         for k, v in cfg.get(artifact["model_type"], {}).items()
@@ -677,7 +682,9 @@ def log_to_mlflow(artifact: dict, metrics: dict, cfg: dict) -> None:
 
             model = artifact.get("model")
             if artifact["model_type"] == "lightgbm" and model is not None:
-                importances = pd.Series(model.feature_importances_, index=FEATURE_COLS)
+                importances = pd.Series(
+                    model.feature_importances_, index=artifact["feature_cols"]
+                )
                 for feat, imp in importances.nlargest(10).items():
                     mlflow.log_metric(f"importance_{feat}", float(imp))
 
@@ -745,7 +752,11 @@ def run() -> None:
             "task": cfg["model"]["task"],
             "model": None,
             "scaler": StandardScaler(),
-            "feature_cols": FEATURE_COLS,
+            "feature_cols": (
+                CHEAT_FEATURE_COLS
+                if cfg["model"]["task"] == "anomaly_detection"
+                else ID_FEATURE_COLS
+            ),
             "label_encoder": None,
             "classes": None,
             "trained": False,

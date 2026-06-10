@@ -120,6 +120,28 @@ FEATURE_COLS = [
     "scroll_direction_ratio",
 ]
 
+# Task-specific feature sets (docs/SIGNALS.md "decouple identification from
+# cheat detection"). FEATURE_COLS is the full bank the feature stage computes;
+# models select their slice so cheat-oriented promotions never trade against
+# identification accuracy at small N (the Phase-5d ablation showed the
+# identifier is already over-parameterised at 18 sessions).
+#
+#   ID_FEATURE_COLS    — player identifier (training/evaluation/API). The 25
+#                        pre-promotion features every identification study
+#                        (0.853 snapshot, SHAP, ablation, calibration) used.
+#   CHEAT_FEATURE_COLS — window-feature cheat detectors (adversarial benchmark,
+#                        streaming engine, anomaly task). Full bank including
+#                        the CS2CD-validated promotions.
+CHEAT_PROMOTED_COLS = [
+    "speed_p50",
+    "speed_p90",
+    "speed_p99",
+    "fast_segment_straightness",
+    "click_reaction_p5",
+]
+ID_FEATURE_COLS = [c for c in FEATURE_COLS if c not in CHEAT_PROMOTED_COLS]
+CHEAT_FEATURE_COLS = list(FEATURE_COLS)
+
 META_COLS = [
     "session_id",
     "window_idx",

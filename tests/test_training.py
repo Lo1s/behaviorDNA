@@ -10,7 +10,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from pipeline.features.run import FEATURE_COLS
+from pipeline.features.run import (
+    CHEAT_FEATURE_COLS,
+    CHEAT_PROMOTED_COLS,
+    FEATURE_COLS,
+    ID_FEATURE_COLS,
+)
 from pipeline.training.run import (
     export_onnx,
     train_isolation_forest,
@@ -90,6 +95,31 @@ def make_train_df(players=("alice", "bob"), n_windows=6) -> pd.DataFrame:
 
 
 EMPTY_VAL = pd.DataFrame(columns=["player"] + FEATURE_COLS)
+
+
+# ---------------------------------------------------------------------------
+# TestFeatureSetDecoupling — docs/SIGNALS.md: identification and cheat
+# detection select different slices of the computed feature bank.
+# ---------------------------------------------------------------------------
+
+
+class TestFeatureSetDecoupling:
+    def test_id_set_excludes_exactly_the_cheat_promotions(self):
+        assert set(ID_FEATURE_COLS) == set(FEATURE_COLS) - set(CHEAT_PROMOTED_COLS)
+        assert set(CHEAT_FEATURE_COLS) == set(FEATURE_COLS)
+
+    def test_id_set_preserves_feature_bank_order(self):
+        assert ID_FEATURE_COLS == [c for c in FEATURE_COLS if c in ID_FEATURE_COLS]
+
+    def test_identification_artifact_uses_id_feature_set(self):
+        artifact, _ = train_lightgbm(make_train_df(), EMPTY_VAL, make_cfg())
+        assert artifact["feature_cols"] == ID_FEATURE_COLS
+        assert list(artifact["scaler"].feature_names_in_) == ID_FEATURE_COLS
+
+    def test_anomaly_artifact_uses_cheat_feature_set(self):
+        artifact, _ = train_isolation_forest(make_train_df(), make_cfg())
+        assert artifact["feature_cols"] == CHEAT_FEATURE_COLS
+        assert artifact["scaler"].n_features_in_ == len(CHEAT_FEATURE_COLS)
 
 
 # ---------------------------------------------------------------------------

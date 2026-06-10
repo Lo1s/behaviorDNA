@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from pipeline.features.run import FEATURE_COLS
+from pipeline.features.run import ID_FEATURE_COLS
 
 log = logging.getLogger(__name__)
 
@@ -44,10 +44,11 @@ EVAL_OUT = ROOT / "reports" / "eval_metrics.json"
 CM_OUT = ROOT / "reports" / "confusion_matrix.csv"
 
 
-def _prep_X(df: pd.DataFrame) -> pd.DataFrame:
+def _prep_X(df: pd.DataFrame, cols: list[str] = ID_FEATURE_COLS) -> pd.DataFrame:
     # Named frame so the (set_output="pandas") scaler + classifier stay
     # feature-name-aware — no predict-time sklearn warning. See training/run.py.
-    return df[FEATURE_COLS].fillna(0.0)
+    # The artifact's own feature_cols is authoritative (ID vs cheat sets differ).
+    return df[cols].fillna(0.0)
 
 
 _CLASSIFIER_TYPES = frozenset({"lightgbm", "random_forest", "xgboost", "svc"})
@@ -77,7 +78,7 @@ def _evaluate_classifier(
     classes = artifact["classes"]
     model_type = artifact["model_type"]
 
-    X_test = scaler.transform(_prep_X(test_df))
+    X_test = scaler.transform(_prep_X(test_df, artifact["feature_cols"]))
     y_true = le.transform(test_df["player"])
     y_pred = model.predict(X_test)
 
@@ -125,7 +126,7 @@ def _evaluate_anomaly_detector(
 
     # Anomaly scaler/model were fit on nameless numpy (see training/run.py) —
     # feed numpy so we don't trip the reverse feature-names warning.
-    X_test = scaler.transform(_prep_X(test_df).to_numpy())
+    X_test = scaler.transform(_prep_X(test_df, artifact["feature_cols"]).to_numpy())
     scores = model.score_samples(X_test)
     preds = model.predict(X_test)
     pct_anomaly = float((preds == -1).mean())

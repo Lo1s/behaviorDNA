@@ -8,7 +8,7 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from api.main import FeatureVector, _vec_to_frame, app
-from pipeline.features.run import FEATURE_COLS
+from pipeline.features.run import FEATURE_COLS, ID_FEATURE_COLS
 from pipeline.training.run import train_isolation_forest, train_lightgbm
 
 # ---------------------------------------------------------------------------
@@ -132,7 +132,8 @@ class TestHealthEndpoint:
         body = r.json()
         assert body["model_type"] == "lightgbm"
         assert body["trained"] is True
-        assert body["feature_count"] == len(FEATURE_COLS)
+        # identification models carry the decoupled ID feature set
+        assert body["feature_count"] == len(ID_FEATURE_COLS)
 
     def test_untrained_model_reports_not_trained(self):
         client = get_client(make_lgbm_artifact(trained=False))

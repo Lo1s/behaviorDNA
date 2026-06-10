@@ -280,11 +280,11 @@ def fit_aggregator_from_synthetic(
         _session_scores,
         load_synthetic_features,
     )
-    from pipeline.features.run import FEATURE_COLS
+    from pipeline.features.run import CHEAT_FEATURE_COLS
 
     # --- Classical detector session scores from the 25-D feature pipeline ---
     feats = load_synthetic_features(synthetic_dir)
-    X = feats[FEATURE_COLS].fillna(0.0).to_numpy()
+    X = feats[CHEAT_FEATURE_COLS].fillna(0.0).to_numpy()
     scaler = StandardScaler().fit(X)
     X_scaled = scaler.transform(X)
 

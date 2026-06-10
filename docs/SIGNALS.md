@@ -59,13 +59,19 @@ GTA effect is neutral-to-slightly-better (0.600 → 0.625 acc) and within small-
 5. **Pretraining corpus:** [CaptchaSolve30k](../notebooks/05_external_datasets.ipynb) (20k human mouse
    sessions, already cached) to pretrain the AE's human-motion manifold, then transfer to GTA.
 
-## Architectural finding — decouple identification from cheat detection
+## Architectural finding — decouple identification from cheat detection ✅ implemented
 
-`FEATURE_COLS` is shared by the **player identifier** (training/eval) and the **cheat detectors**
-(streaming anomaly models, benchmark). At N=18 GTA sessions this forces a trade-off: cheat-oriented
-features add little to identification (and the model is already over-parameterised — Phase 5d). The
-clean fix is a **separate cheat-detection feature set / model head** so cheat features can be added
-without touching the identifier. Tracked in [docs/ROADMAP.md](ROADMAP.md) Phase 1.5.
+`FEATURE_COLS` *was* shared by the **player identifier** (training/eval) and the **cheat detectors**
+(streaming anomaly models, benchmark). At N=18 GTA sessions this forced a trade-off: cheat-oriented
+features add little to identification (and the model is already over-parameterised — Phase 5d).
+
+**Implemented (2026-06-10):** `pipeline/features/run.py` now defines two task-specific slices of the
+computed bank — `ID_FEATURE_COLS` (the 25 pre-promotion features; player identifier) and
+`CHEAT_FEATURE_COLS` (all 30 incl. the promotions; anomaly task, adversarial benchmark, streaming
+engine). Each trained artifact carries its own `feature_cols`, and evaluation / API / dashboard read
+that instead of the global constant. Cheat features (e.g. the needs-data signals above) can now be
+promoted without touching the identifier; ID-oriented ideas (handedness asymmetry, pause signature)
+go to `ID_FEATURE_COLS` when data grows.
 
 ## Data-hygiene fix (cheat sessions excluded from identification)
 
