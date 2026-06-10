@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 BehaviorDNA is a game-agnostic ML system for player behavioural biometrics — identifying players and detecting automation from raw mouse/keyboard telemetry. It is built as a portfolio piece targeting AI/ML roles at anti-cheat companies (Anybrain, Irdeto, BattlEye, Riot, etc.). Roadmap and current phase status live in [docs/ROADMAP.md](docs/ROADMAP.md).
 
+> **⏳ Pending (GPU desktop only — remove this line when done):** retrain canonical LSTM-AE weights and re-render the README GIF (`python -m scripts.train_lstm_ae` → `python -m scripts.build_phase4_demo --gif`, commit GIF if changed), then run the full `pytest -q` in one process. Details in [docs/ROADMAP.md → Tooling backlog](docs/ROADMAP.md#tooling-backlog). If this session is on a CUDA machine, offer to do it.
+
 ## Common commands
 
 ```bash
