@@ -24,6 +24,10 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 | 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Bayesian multi-detector aggregator + WebSocket API + live dashboard | ✅ Infra done; combined risk saturates on real data → 4.1 |
 | 4.1. [Live recorder + aggregator redesign](#phase-41--live-recorder--multi-user-backlog) | Aggregator redesign (real data), live recorder, WS auth | 📝 Backlog |
 | 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ✅ Done (5a–5e); MLOps in [docs/MLOPS.md](docs/MLOPS.md) |
+| 6. [Public-corpus identification + verification](#phase-6--public-corpus-identification--verification) | Run the pipeline at 10–120 users (Balabit/SapiMouse); reframe ID as verification/open-set (EER, smurf detection) | ⬜ Not started |
+| 7. [Detection-vs-evasion frontier](#phase-7--detection-vs-evasion-frontier) | Parameterised cheat "humanizer"; detector-AUC-vs-evasion curve + equilibrium | ⬜ Not started |
+| 8. [Self-supervised pretraining](#phase-8--self-supervised-pretraining) | Pretrain the sequence encoder on CaptchaSolve30k; data-efficiency curve | ⬜ Not started (GPU desktop) |
+| 9. [Outcome-labelled telemetry](#phase-9--outcome-labelled-telemetry) | CS2 demo parsing → kills/damage/accuracy per window; supervised detection + aggregator re-attempt | ⬜ Not started (spike early) |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
 
@@ -40,6 +44,18 @@ Agreed sequencing for the remaining work, now that real recordings are in. Rigor
 7. ~~**5e + CI pre-ingestion hook.**~~ ✅ **done** — `scripts/promote_model.py` (registry promotion, verified live on DagsHub) + CI validation gate + `docs/MLOPS.md`. **Roadmap complete** — remaining work is data-gated (real cheat recordings → 4.1) or scales with more sessions.
 
 > **Pre-recording readiness (done):** ahead of the real GTA recordings, shipped data-independent infra — drift detection (5c), a recording QC gate (`scripts/validate_recordings.py`), polling-rate normalization, and dependency fixes. See the [Pre-recording readiness](#pre-recording-readiness-done-while-waiting-for-real-recordings) section and the Recording Arrival Runbook in [docs/MONITORING.md](MONITORING.md).
+
+### Extension sequencing (Phases 6–9 + the tech report)
+
+Phases 1–5 closed the original portfolio scope (end-to-end pipeline, deep model, adversarial benchmark, statistical rigor) — but on **3 players / 1 cheat recorder**, which is the credibility ceiling. Phases 6–9 attack that ceiling, ordered by impact-per-evening **and** by what's unblocked now:
+
+1. **Phase 6 — public-corpus ID + verification (A + D merged).** Highest credibility ROI and CPU-only. Answers the killer question ("does it survive beyond 3 friends?") on Balabit/SapiMouse **and** reframes ID as the actual industry problem (verification / open-set / smurf detection) — one dataset-adapter effort buys both. The [feature-set decoupling](SIGNALS.md) we shipped makes the mouse-only slice a three-line change. **Do first.**
+2. **Phase 9 — outcome telemetry, *spike now / execute later*.** Data-collection lead time is the bottleneck, not code. Run the **one-evening feasibility spike** (can `demoparser2` pull view-angles + damage from your own CS2 demo, clock-synced to a simultaneous recorder run?) **during Phase 6**, then let dual-capture sessions accumulate in the background while you build 7.
+3. **Phase 7 — detection-vs-evasion frontier (C).** Most anti-cheat-native; CPU-friendly (scores through the existing LSTM-AE). `live_cheat.py` already has the easing/overshoot/jitter planners — a humanization strength knob λ parameterises what exists.
+4. **Phase 8 — self-supervised pretraining (B).** Highest research-credential ROI but **needs the GPU desktop** and is the heaviest lift. Attacks the *actual* limiting factor (data, per the architecture comparison) — "a small foundation model for human input motion." Fold the [pending canonical LSTM-AE retrain](#tooling-backlog) into its first desktop session.
+5. **Tech report (F) — grown, not written.** Create the ~10-section skeleton when Phase 6 starts; "its report section is drafted" is part of each phase's definition of done. Post to arXiv after Phase 8; the blog post is a condensation. The structure falls out of [docs/FINDINGS.md](FINDINGS.md).
+
+> Same contract as before: **a guide, not a promise** — revisit if implementing one phase changes what the next should be. The honest-positioning rule still holds: a null result (mouse-only ID drops; pretraining doesn't transfer; the domain gap dominates) is a publishable finding, not a failure.
 
 ---
 
@@ -274,9 +290,98 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 
 ---
 
+## Phase 6 — Public-corpus identification + verification
+
+**Why:** The single most damaging question a reviewer can ask is *"does this survive beyond 3 friends?"* — and right now the honest answer is "unmeasured." The fix is **not** recruiting 15 people; it's running the *exact* windowed-feature + model pipeline on a public mouse-dynamics corpus at 10–120 users, the way notebook 17 already did for CS2CD. Two payloads ship from one dataset-adapter effort: (A) the **scale** claim, and (D) the **reframe** — closed-set "which of 3 players" is not the industry problem; *"is this account being played by its usual owner?"* (account-sharing / smurf / boost detection) is. Same data, harder and more product-relevant problem, and it opens the non-gaming story (continuous authentication, fraud/bot detection) that matters to Irdeto-style companies.
+
+**Datasets:**
+- **Balabit Mouse Dynamics Challenge** (10 users) — the classic benchmark, so EER is literature-comparable.
+- **SapiMouse** (120 users) — the scale claim; short sessions, large N.
+- (BeCAPTCHA-Mouse deferred — two corpora is enough to make the point.)
+
+**Approach:**
+- **Adapter** maps each corpus's raw mouse stream into the existing `events.parquet` schema (same pattern as the CS2CD ingestion in notebook 17). These corpora are **mouse-only** → define a `MOUSE_ID_FEATURE_COLS` slice (trivial now that ID/cheat feature sets are [decoupled](SIGNALS.md)); handle missing keyboard features by *exclusion*, not zero-fill into the model.
+- **Closed-set:** accuracy vs number-of-users curve (3 → 10 → 50 → 120), session-held-out splits, bootstrap CIs — wired into `scripts/generate_results.py` so the README row stays pipeline-backed.
+- **Verification (the D reframe):** per-user one-vs-rest scores → **ROC / EER + DET curve**; **open-set:** enrol K users, hold the rest out as impostors, report false-accept at a fixed rejection rate. Frame as smurf / account-sharing detection in the docs, with a paragraph on the continuous-auth generalisation.
+
+**Deliverables:**
+- [ ] `pipeline/external/` adapters for Balabit + SapiMouse (schema map + loader)
+- [ ] `MOUSE_ID_FEATURE_COLS` slice + tests
+- [ ] `notebooks/19_identification_at_scale_public.ipynb` — users-curve, EER/DET, open-set
+- [ ] `pipeline/verification.py` — pairwise scoring + EER + open-set rejection (unit-tested)
+- [ ] `reports/external_identification.json` + README results row via `generate_results.py`
+- [ ] `docs/VERIFICATION.md` — the product reframe + continuous-auth generalisation
+
+**Honest-outcome note:** GTA features are partly keyboard-driven, so mouse-only accuracy may *drop* vs the 0.85 GTA number. Either result is publishable — that's the point of the positioning.
+
+---
+
+## Phase 7 — Detection-vs-evasion frontier
+
+**Why:** The most anti-cheat-native thing a portfolio can show: you generate cheats — now make them **evade**, and characterise the equilibrium. Red-teaming your own detector and plotting where it breaks is literally the day job at Anybrain / BattlEye / Riot, and almost nobody has it in a portfolio.
+
+**Approach:**
+- **Humanizer with a strength knob λ ∈ [0, 1]** (`pipeline/adversarial/humanizer.py`):
+  - reaction-delay injection sampled from a human RT distribution,
+  - Bézier / minimum-jerk smoothing of aimbot snaps,
+  - kinematic noise **matched to the target player's own** speed/curvature distribution (sample from that player's legit windows — we have them).
+  - This is an *extension of what exists*: `pipeline/adversarial/live_cheat.py` already has easing, overshoot, and jitter planners; λ parameterises their strength.
+- **The two curves that make the figure:**
+  - **detector AUC(λ)** — chunk-level LSTM-AE + the window detectors,
+  - **cheat utility(λ)** — residual advantage (e.g. reaction-time edge vs the player's legit baseline).
+  - Headline plot: **detection vs utility**, with the equilibrium region marked — *"humanized enough to evade ≈ no longer worth running."*
+
+**Deliverables:**
+- [ ] `pipeline/adversarial/humanizer.py` + `tests/test_humanizer.py`
+- [ ] `notebooks/20_evasion_frontier.ipynb` — λ-sweep, both curves, equilibrium
+- [ ] "Arms race" section in `docs/ADVERSARIAL.md` + frontier figure in README
+- [ ] `reports/evasion_frontier.json` (AUC + utility per λ)
+
+---
+
+## Phase 8 — Self-supervised pretraining
+
+**Why:** Highest research-credential ROI, and it attacks the project's *actual* limiting factor. The [architecture comparison](ARCHITECTURE_COMPARISON.md) already showed capacity isn't the bottleneck — **data is** — so a transfer/pretraining result targets the real constraint and is the most "modern ML" headline available: *"a small foundation model for human input motion."* **Needs the GPU desktop** and is the heaviest lift, hence last.
+
+**Approach:**
+- **Objective:** start with **masked-step reconstruction** on the existing 8-D event tensors (reuses `pipeline/sequences/dataset.py` + the AE encoder nearly unchanged). Contrastive is the stretch goal, not the first move.
+- **Corpus:** **CaptchaSolve30k** (~20k human mouse sessions, already cached — see notebook 05). First **measure the captcha→game domain gap** with the existing drift tooling (`pipeline/monitoring/drift.py`) — a finding either way, and it de-risks the transfer claim.
+- **Headline experiment:** **data-efficiency curve** — chunk AUC vs number of fine-tuning sessions (2, 5, 10, 18), pretrained vs from-scratch, on **both** GTA and CS2CD. Pretraining-wins-at-low-N = the foundation-model line; pretraining-doesn't-help = domain gap dominates, also a real result.
+- Fold the [pending canonical LSTM-AE retrain](#tooling-backlog) into the first desktop session.
+
+**Deliverables:**
+- [ ] `pipeline/pretraining/` — masked-step objective + dataloader
+- [ ] `scripts/pretrain_encoder.py` (CUDA) — persists encoder weights + meta
+- [ ] domain-gap report (captcha vs GTA vs CS2CD) via drift tooling
+- [ ] `notebooks/21_pretraining.ipynb` — data-efficiency curve, pretrained vs scratch
+- [ ] `docs/PRETRAINING.md` — objective, corpus, transfer result (honest either way)
+
+---
+
+## Phase 9 — Outcome-labelled telemetry
+
+**Why:** [docs/SIGNALS.md](SIGNALS.md) says the *causally strongest* cheat signals are outcome/performance stats (headshot ratio, damage/shot, accuracy) that **cannot be collected from GTA** — the CS2CD sample is action-sparse (`damage_total = 0`). An instrumentable game with demo/log parsing gives kills/damage/accuracy **per window with ground truth**, unlocking the supervised detection notebook 16's D2 lever is waiting on, and a *real* re-attempt of the Phase 4.1 session-level aggregator (which saturated on synthetic sparse injection).
+
+**Approach — spike early, execute late:**
+- **One-evening feasibility spike (run during Phase 6):** can `demoparser2` pull per-tick view-angles + damage/kill events from a demo of *your own* CS2 match, and **clock-sync** it against your recorder running simultaneously? *That sync is the whole risk* — settle it before committing to capture sessions.
+- **If yes:** schedule **dual-capture** sessions (recorder + demo). Offline / `-insecure` only for anything `cheat_sim`-related, per [docs/ETHICS.md](ETHICS.md).
+- **Unlocks:** SIGNALS.md collection-roadmap item 1 (outcome features) → supervised detection (notebook 16 D2) → honest Phase 4.1 aggregator re-attempt with data that can support it.
+
+**Deliverables:**
+- [ ] `scripts/parse_cs2_demo.py` — demo → per-window outcome features + clock-sync to recorder
+- [ ] feasibility-spike note in `docs/CHEAT_DATA_COLLECTION.md` (sync strategy verdict)
+- [ ] outcome-feature columns + `OUTCOME_FEATURE_COLS` slice (when data lands)
+- [ ] supervised detection benchmark (classifier head) + Phase 4.1 aggregator re-attempt
+
+---
+
 ## Cross-cutting
 
-**README rewrite at end of Phase 5** — new sections for anti-cheat features, deep learning, production architecture, model rigor; updated architecture diagram; portfolio video embed.
+**Tech report (F) — grown, not written.** Condense the 14 docs into one ~10-page arXiv-style report — *"Input-level behavioural biometrics for cheat detection: what works at small N"* — plus a blog-post condensation. Submitting (even arXiv-only) converts "portfolio repo" into "research output," the currency at R&D-flavoured teams (Irdeto, Anybrain). **Don't save it for the end:** create the ~10-section skeleton when Phase 6 starts and make *"its report section is drafted"* part of each phase's definition of done. The structure falls out of [docs/FINDINGS.md](FINDINGS.md): problem → data → windowed vs sequence → small-N rigor (ablation / CIs / calibration / serving-fidelity) → scale-up (Phase 6) → verification reframe (Phase 6/D) → evasion frontier (Phase 7) → pretraining (Phase 8). Post after Phase 8.
+- [ ] `docs/REPORT.md` skeleton (created at Phase 6 start; section drafted per phase)
+- [ ] arXiv submission + blog post (after Phase 8)
+
+**README rewrite at end of Phase 5** — ✅ effectively done (self-updating results block via `scripts/generate_results.py`, GIF hero, funnel). Keep the results block pipeline-backed as Phases 6–9 add rows.
 
 **`docs/RESEARCH_LOG.md`** (updated throughout) — research questions answered with measured results:
 - "How few sessions per player do we need for reliable identification?"
@@ -296,8 +401,12 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 | 3. Adversarial bots | no | ✅ fully synthetic |
 | 4. Streaming + aggregator | no | ✅ uses any session |
 | 5. Statistical rigor | yes, ideally | partial — works better with more data |
+| 6. Public-corpus ID + verification | no — uses **public** corpora (Balabit/SapiMouse) | ✅ start now; CPU-only |
+| 7. Evasion frontier | no — uses existing legit windows + LSTM-AE | ✅ start now; CPU-friendly |
+| 8. Pretraining | no — CaptchaSolve30k already cached | ⚠️ needs **GPU desktop** |
+| 9. Outcome telemetry | **yes** — new CS2 dual-capture sessions | spike now (1 evening); capture lead-time bound |
 
-**Order if recordings are delayed:** 3 → 4 → 1 → 2 → 5.
+**Extension order:** 6 → (9 spike) → 7 → 8, with the tech report (F) growing alongside. See [Extension sequencing](#extension-sequencing-phases-69--the-tech-report).
 
 ---
 
