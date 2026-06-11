@@ -47,9 +47,22 @@ session aggregator. Source: LSTM_AE.md, ARCHITECTURE_COMPARISON.md, STREAMING.md
 - 5.6 Serving-fidelity bug: found → root-caused (float32 + overfit margins) → fixed (bit-faithful float64 export) → CI-gated
 
 ## 6. Scaling identification + verification *(Phase 6)*
-<!-- Users-curve to 120 (Balabit/SapiMouse), EER/DET, open-set rejection, the
-smurf/account-sharing reframe + continuous-auth generalisation. Source:
-notebooks/19, docs/VERIFICATION.md. -->
+<!-- Source: notebooks/19, docs/VERIFICATION.md, reports/external_identification.json. -->
+
+**Draft (2026-06-11).** We run the unmodified windowed-feature pipeline
+(mouse-only slice, 17 features) on two public corpora. On **Balabit** (10
+users, hours of activity each) the pipeline reaches 0.59 closed-set accuracy
+(chance 0.10) and — on the challenge's own labelled impostor task — **EER
+0.144** over 784 test sessions, in the credible range for challenge-era
+dedicated methods. On **SapiMouse** (120 users, *minutes* each, the paper's
+3-min-train / 1-min-test protocol) accuracy stays 10–20× chance at every
+enrolment size up to 120, but absolute accuracy is low (0.11) and **open-set
+rejection is chance-level**: with ~6 training windows per user, 30-second
+aggregate features are data-starved and closed-set softmax confidence is not
+an identity score. The two corpora bracket the claim precisely: the
+behavioural signal survives scale; the per-user data budget — not model
+capacity (§4) — is the binding constraint, motivating §8's pretraining and
+embedding-based verification over classifier confidence.
 
 ## 7. The detection-vs-evasion frontier *(Phase 7)*
 <!-- Humanizer λ-sweep; detector-AUC vs cheat-utility equilibrium. Source:

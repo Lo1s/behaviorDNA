@@ -11,6 +11,7 @@ build whenever the README no longer matches the reports.
 
 Sources:
   reports/eval_metrics.json                — identification accuracy/F1 + bootstrap CIs
+  reports/external_identification.json     — public-corpus scale-up + verification (Phase 6)
   reports/architecture_comparison.json     — LSTM-AE chunk AUC, synthetic cheats on real legit
   reports/architecture_comparison_cs2cd.json — LSTM-AE chunk AUC on CS2CD real cheats
   reports/architecture_comparison_real.json  — LSTM-AE chunk AUC on own recorded cheats
@@ -52,6 +53,24 @@ def _load(name: str) -> dict:
 
 def _fmt_ci(ci: list[float]) -> str:
     return f"{ci[0]:.2f}–{ci[1]:.2f}"
+
+
+def _external_rows() -> str:
+    """Public-corpus scale-up + verification rows (Phase 6). Empty string if
+    reports/external_identification.json doesn't exist yet."""
+    path = REPORTS / "external_identification.json"
+    if not path.exists():
+        return ""
+    ext = _load("external_identification.json")
+    bal = ext["balabit"]
+    sap = ext["sapimouse"]
+    full = next(e for e in sap["users_curve"] if e["n_users"] == sap["n_users"])
+    bal_acc = bal["closed_set"]["accuracy"]
+    bal_eer = bal["verification"]["session_eer"]
+    n_trials = bal["verification"]["n_genuine"] + bal["verification"]["n_impostor"]
+    return f"""
+| **Public corpus, {bal['n_users']} users (Balabit)** — *mouse-only, same pipeline* | **{bal_acc:.2f}** acc (95% CI {_fmt_ci(bal['closed_set']['accuracy_ci95'])}, chance 0.10) · impostor-detection **EER {bal_eer:.3f}** ({n_trials} labelled sessions) |
+| **Public corpus, {sap['n_users']} users (SapiMouse)** — *scale stress-test* | {full['accuracy_mean']:.2f} acc (chance {full['chance']:.3f} — {full['accuracy_mean']/full['chance']:.0f}× chance) from ~6 train windows/user; open-set ≈ chance → data-starved, the Phase-8 pretraining motivation |"""
 
 
 def build_results_markdown() -> str:
@@ -96,8 +115,8 @@ def build_results_markdown() -> str:
 
 | Setting | Result |
 |---|---|
-| {n_classes} players | **{acc:.2f}** acc (95% CI {_fmt_ci(acc_ci)}) · {f1:.2f} F1 (95% CI {_fmt_ci(f1_ci)}) |
-| same-hardware pair *(no hardware confound)* | **{SAME_HARDWARE_ACC:.2f}** acc ({SAME_HARDWARE_BASELINE:.2f} baseline) — the honest biometric ([notebook 12](notebooks/12_explainability.ipynb)) |
+| {n_classes} players (real GTA) | **{acc:.2f}** acc (95% CI {_fmt_ci(acc_ci)}) · {f1:.2f} F1 (95% CI {_fmt_ci(f1_ci)}) |
+| same-hardware pair *(no hardware confound)* | **{SAME_HARDWARE_ACC:.2f}** acc ({SAME_HARDWARE_BASELINE:.2f} baseline) — the honest biometric ([notebook 12](notebooks/12_explainability.ipynb)) |{_external_rows()}
 
 **Cheat detection** — chunk-level ROC AUC of the LSTM autoencoder, three independent settings (hand-crafted window features ≈ 0.50 = chance for aimbot):
 

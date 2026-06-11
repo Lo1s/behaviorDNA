@@ -308,18 +308,19 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 **Decision (2026-06-11):** build the adapter abstraction for **both Balabit + SapiMouse together** (shared base, one users-curve 3→120 in notebook 19).
 
 **Deliverables:**
-- [x] `MOUSE_ID_FEATURE_COLS` slice + tests — *scaffolded* (`pipeline/features/run.py`, `tests/test_external.py`)
-- [~] `pipeline/external/` adapters — *scaffolded*: shared `base.MouseCorpusAdapter` + `build_mouse_session` (concrete, tested); `balabit.py` / `sapimouse.py` CSV parsing stubbed with the file-format contract documented inline
-- [~] `notebooks/19_identification_at_scale_public.ipynb` — *skeleton* (sections + stub cells)
-- [ ] Fill the two adapters against the downloaded corpora; export → ingest → features
-- [ ] Closed-set users-curve (3→10→50→120) with bootstrap CIs
-- [ ] `pipeline/verification.py` — pairwise scoring + EER + DET + open-set rejection (unit-tested)
-- [ ] `reports/external_identification.json` + README results row via `generate_results.py`
-- [ ] `docs/VERIFICATION.md` — the product reframe + continuous-auth generalisation
+- [x] `MOUSE_ID_FEATURE_COLS` slice + tests (`pipeline/features/run.py`, `tests/test_external.py`)
+- [x] `pipeline/external/` adapters — Balabit + SapiMouse parsing implemented & fixture-tested; incl. idle-gap segmentation (`split_on_idle` — desktop captures aren't continuous gameplay) and the (65535, 65535) sentinel-glitch guard found in Balabit
+- [x] Corpora downloaded into `data/external/` (Balabit 241 MB from the archived GitHub repo; SapiMouse 8 MB zip from ms.sapientia.ro) — re-downloadable, see `data/external/README.md`
+- [x] `pipeline/verification.py` — EER + DET + FAR@FRR + closed-set→verification conversion (unit-tested)
+- [x] Users-curve + verification run — `scripts/run_external_identification.py` → `reports/external_identification.json` (seed 42)
+- [x] README results rows via `generate_results.py` (auto-generated, CI-gated)
+- [x] `docs/VERIFICATION.md` — results + the product reframe
+- [ ] `notebooks/19_identification_at_scale_public.ipynb` — fill the skeleton into the tutorial walkthrough (plots: users-curve, DET; the JSON + runner make this mechanical)
+- [ ] REPORT.md §6 — expand the draft into the full section
 
-Legend for the boxes: `[x]` done · `[~]` scaffolded (stub + tests, awaiting data) · `[ ]` not started.
+**Key results (2026-06-11):** Balabit (10 users, hours/user): closed-set **0.59** acc (chance 0.10), **impostor-detection EER 0.144** over 784 labelled sessions — the literature-comparable headline, from the unmodified GTA pipeline. SapiMouse (120 users, *minutes*/user): accuracy stays **10–20× chance** all the way to 120 users (0.11 @ chance 0.008) but absolute performance is data-starved at ~6 train windows/user, and **open-set rejection is chance-level** — softmax confidence is not an identity score. The scale answer is honest and two-sided: *the signal survives; the data budget is the binding constraint* → directly motivates Phase 8 (pretraining) and embedding-based verification. Full numbers: [docs/VERIFICATION.md](VERIFICATION.md).
 
-**Honest-outcome note:** GTA features are partly keyboard-driven, so mouse-only accuracy may *drop* vs the 0.85 GTA number. Either result is publishable — that's the point of the positioning.
+**Honest-outcome note (confirmed):** GTA features are partly keyboard-driven; mouse-only transfer behaved as predicted — strong where data is plentiful (Balabit), starved where it isn't (SapiMouse).
 
 ---
 

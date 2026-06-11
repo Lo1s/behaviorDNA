@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import abc
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,79 @@ from typing import Any
 # thresholds here so an adapter can skip too-short corpus sessions cleanly).
 MIN_EVENTS = 100
 MIN_DURATION_MS = 60_000.0
+
+# Coordinate sanity ceiling. Balabit contains (65535, 65535) sentinel-glitch
+# rows (uint16 max — measured, ~1 per session); anything beyond a plausible
+# screen also overflows the pipeline's Int16 event schema. Parsers drop rows
+# with x or y outside [0, MAX_COORD].
+MAX_COORD = 32_000
+
+
+def rows_to_recorder_events(
+    rows: Iterable[tuple[float, str, str, int, int]],
+) -> list[dict[str, Any]]:
+    """(t_ms, button, state, x, y) rows → recorder-schema event dicts.
+
+    Shared by both corpora — Balabit and SapiMouse use the same
+    ``button``/``state`` vocabulary (measured, not assumed):
+
+      Move / Drag        → ``mouse_move`` with (x, y) and dx/dy as consecutive
+                           position deltas (what ``compute_mouse_kinematics``
+                           consumes)
+      Pressed / Released → ``mouse_click`` with button + pressed flag
+      Down / Up          → ``mouse_scroll`` with dy = -1 / +1 (sign feeds
+                           ``scroll_direction_ratio``; Balabit only)
+
+    ``t`` must already be session-relative milliseconds. Rows are emitted in
+    input order — callers sort by timestamp first.
+    """
+    events: list[dict[str, Any]] = []
+    prev_x: int | None = None
+    prev_y: int | None = None
+    for t, button, state, x, y in rows:
+        if state in ("Move", "Drag"):
+            dx = 0 if prev_x is None else x - prev_x
+            dy = 0 if prev_y is None else y - prev_y
+            events.append(
+                {"t": t, "type": "mouse_move", "x": x, "y": y, "dx": dx, "dy": dy}
+            )
+            prev_x, prev_y = x, y
+        elif state == "Pressed":
+            events.append(
+                {
+                    "t": t,
+                    "type": "mouse_click",
+                    "x": x,
+                    "y": y,
+                    "button": button.lower(),
+                    "pressed": True,
+                }
+            )
+        elif state == "Released":
+            events.append(
+                {
+                    "t": t,
+                    "type": "mouse_click",
+                    "x": x,
+                    "y": y,
+                    "button": button.lower(),
+                    "pressed": False,
+                }
+            )
+        elif state in ("Down", "Up"):
+            events.append(
+                {
+                    "t": t,
+                    "type": "mouse_scroll",
+                    "x": x,
+                    "y": y,
+                    "dx": 0,
+                    "dy": 1 if state == "Up" else -1,
+                }
+            )
+        # anything else (unknown states) is silently dropped, mirroring the
+        # ingestion stage's VALID_EVENT_TYPES filter
+    return events
 
 
 def build_mouse_session(
@@ -72,6 +145,32 @@ def build_mouse_session(
     if extra:
         session.update(extra)
     return session
+
+
+def split_on_idle(
+    events_df, gap_ms: float = 10_000.0, min_segment_ms: float = 30_000.0
+):
+    """Split an events frame into continuous-activity segments at idle gaps.
+
+    Desktop corpora (Balabit especially) are hours-long captures dominated by
+    idle time; the GTA windowing assumes continuous activity and stops at the
+    first empty 30 s window. Segmenting at gaps > ``gap_ms`` and keeping
+    segments spanning ≥ ``min_segment_ms`` recovers the actual behaviour
+    bursts — the standard treatment in the mouse-dynamics literature.
+
+    Returns a list of DataFrames (each sorted by ``t``), possibly empty.
+    """
+    if events_df.empty:
+        return []
+    df = events_df.sort_values("t").reset_index(drop=True)
+    gaps = df["t"].diff() > gap_ms
+    segment_ids = gaps.cumsum()
+    out = []
+    for _, seg in df.groupby(segment_ids):
+        span = float(seg["t"].iloc[-1] - seg["t"].iloc[0])
+        if span >= min_segment_ms:
+            out.append(seg.reset_index(drop=True))
+    return out
 
 
 def write_sessions(sessions: Iterator[dict], out_dir: Path) -> int:

@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-06-11T10:43:37+00:00",
+  "feature_set": "MOUSE_ID_FEATURE_COLS (17 mouse-only features)",
+  "model": "LightGBM {'num_leaves': 31, 'n_estimators': 200, 'learning_rate': 0.1, 'min_child_samples': 3, 'subsample': 1.0, 'colsample_bytree': 1.0}",
+  "seed": 42,
+  "sapimouse": {
+    "n_users": 120,
+    "protocol": "train on 3-min session, test on 1-min session (paper protocol)",
+    "users_curve": [
+      {
+        "n_users": 3,
+        "n_draws": 5,
+        "accuracy_mean": 0.6777777777777778,
+        "accuracy_min": 0.42857142857142855,
+        "accuracy_max": 0.8888888888888888,
+        "chance": 0.3333333333333333
+      },
+      {
+        "n_users": 10,
+        "n_draws": 5,
+        "accuracy_mean": 0.5670501672240803,
+        "accuracy_min": 0.4230769230769231,
+        "accuracy_max": 0.76,
+        "chance": 0.1
+      },
+      {
+        "n_users": 30,
+        "n_draws": 5,
+        "accuracy_mean": 0.3622111990319256,
+        "accuracy_min": 0.3055555555555556,
+        "accuracy_max": 0.3972602739726027,
+        "chance": 0.03333333333333333
+      },
+      {
+        "n_users": 60,
+        "n_draws": 5,
+        "accuracy_mean": 0.3110904216061347,
+        "accuracy_min": 0.2534246575342466,
+        "accuracy_max": 0.3356164383561644,
+        "chance": 0.016666666666666666
+      },
+      {
+        "n_users": 120,
+        "n_draws": 1,
+        "accuracy_mean": 0.1103448275862069,
+        "accuracy_min": 0.1103448275862069,
+        "accuracy_max": 0.1103448275862069,
+        "chance": 0.008333333333333333,
+        "accuracy_ci95": [
+          0.07586206896551724,
+          0.14482758620689656
+        ],
+        "n_test_windows": 290,
+        "window_eer": 0.3845223981216729
+      }
+    ],
+    "open_set": {
+      "n_enrolled": 60,
+      "n_unknown": 60,
+      "eer": 0.4825174825174825,
+      "far_at_frr05": 0.9319727891156463,
+      "n_known_windows": 143,
+      "n_unknown_windows": 147
+    }
+  },
+  "balabit": {
+    "n_users": 10,
+    "closed_set": {
+      "n_users": 10,
+      "accuracy": 0.5930984902947519,
+      "accuracy_ci95": [
+        0.5672178289000719,
+        0.6196980589503954
+      ],
+      "chance": 0.1,
+      "n_train_windows": 8319,
+      "n_test_windows": 1391
+    },
+    "verification": {
+      "task": "challenge protocol: is this test session really the claimed user?",
+      "session_eer": 0.14395886889460155,
+      "n_genuine": 395,
+      "n_impostor": 389,
+      "n_skipped_no_windows": 32
+    }
+  }
+}
