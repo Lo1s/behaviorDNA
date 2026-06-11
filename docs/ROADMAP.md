@@ -298,6 +298,7 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 - **Balabit Mouse Dynamics Challenge** (10 users) — the classic benchmark, so EER is literature-comparable.
 - **SapiMouse** (120 users) — the scale claim; short sessions, large N.
 - (BeCAPTCHA-Mouse deferred — two corpora is enough to make the point.)
+- Download locations + layout: [`data/external/README.md`](../data/external/README.md) (dirs pre-created; gitignored except the README).
 
 **Approach:**
 - **Adapter** maps each corpus's raw mouse stream into the existing `events.parquet` schema (same pattern as the CS2CD ingestion in notebook 17). These corpora are **mouse-only** → define a `MOUSE_ID_FEATURE_COLS` slice (trivial now that ID/cheat feature sets are [decoupled](SIGNALS.md)); handle missing keyboard features by *exclusion*, not zero-fill into the model.
