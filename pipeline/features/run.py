@@ -142,6 +142,25 @@ CHEAT_PROMOTED_COLS = [
 ID_FEATURE_COLS = [c for c in FEATURE_COLS if c not in CHEAT_PROMOTED_COLS]
 CHEAT_FEATURE_COLS = list(FEATURE_COLS)
 
+# Keyboard-derived features (and the mouse/key cross-ratio). Public mouse-dynamics
+# corpora (Balabit, SapiMouse — Phase 6) have no keyboard channel, so these would
+# be zero-filled and inject a constant; the mouse-only ID slice drops them instead.
+KEYBOARD_FEATURE_COLS = [
+    "hold_mean",
+    "hold_std",
+    "iki_mean",
+    "iki_std",
+    "burst_rate",
+    "wasd_rhythm",
+    "keystroke_periodicity",
+    "mouse_key_ratio",
+]
+# Mouse-only identification slice — derived from ID_FEATURE_COLS (so the
+# cheat-promoted percentiles stay excluded) minus the keyboard features. Used to
+# train/evaluate the identifier on mouse-only public corpora (docs/ROADMAP.md
+# Phase 6). On GTA data the full ID_FEATURE_COLS remains the default.
+MOUSE_ID_FEATURE_COLS = [c for c in ID_FEATURE_COLS if c not in KEYBOARD_FEATURE_COLS]
+
 META_COLS = [
     "session_id",
     "window_idx",

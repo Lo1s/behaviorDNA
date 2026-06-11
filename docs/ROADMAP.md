@@ -304,13 +304,19 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 - **Closed-set:** accuracy vs number-of-users curve (3 → 10 → 50 → 120), session-held-out splits, bootstrap CIs — wired into `scripts/generate_results.py` so the README row stays pipeline-backed.
 - **Verification (the D reframe):** per-user one-vs-rest scores → **ROC / EER + DET curve**; **open-set:** enrol K users, hold the rest out as impostors, report false-accept at a fixed rejection rate. Frame as smurf / account-sharing detection in the docs, with a paragraph on the continuous-auth generalisation.
 
+**Decision (2026-06-11):** build the adapter abstraction for **both Balabit + SapiMouse together** (shared base, one users-curve 3→120 in notebook 19).
+
 **Deliverables:**
-- [ ] `pipeline/external/` adapters for Balabit + SapiMouse (schema map + loader)
-- [ ] `MOUSE_ID_FEATURE_COLS` slice + tests
-- [ ] `notebooks/19_identification_at_scale_public.ipynb` — users-curve, EER/DET, open-set
-- [ ] `pipeline/verification.py` — pairwise scoring + EER + open-set rejection (unit-tested)
+- [x] `MOUSE_ID_FEATURE_COLS` slice + tests — *scaffolded* (`pipeline/features/run.py`, `tests/test_external.py`)
+- [~] `pipeline/external/` adapters — *scaffolded*: shared `base.MouseCorpusAdapter` + `build_mouse_session` (concrete, tested); `balabit.py` / `sapimouse.py` CSV parsing stubbed with the file-format contract documented inline
+- [~] `notebooks/19_identification_at_scale_public.ipynb` — *skeleton* (sections + stub cells)
+- [ ] Fill the two adapters against the downloaded corpora; export → ingest → features
+- [ ] Closed-set users-curve (3→10→50→120) with bootstrap CIs
+- [ ] `pipeline/verification.py` — pairwise scoring + EER + DET + open-set rejection (unit-tested)
 - [ ] `reports/external_identification.json` + README results row via `generate_results.py`
 - [ ] `docs/VERIFICATION.md` — the product reframe + continuous-auth generalisation
+
+Legend for the boxes: `[x]` done · `[~]` scaffolded (stub + tests, awaiting data) · `[ ]` not started.
 
 **Honest-outcome note:** GTA features are partly keyboard-driven, so mouse-only accuracy may *drop* vs the 0.85 GTA number. Either result is publishable — that's the point of the positioning.
 
@@ -378,7 +384,7 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 ## Cross-cutting
 
 **Tech report (F) — grown, not written.** Condense the 14 docs into one ~10-page arXiv-style report — *"Input-level behavioural biometrics for cheat detection: what works at small N"* — plus a blog-post condensation. Submitting (even arXiv-only) converts "portfolio repo" into "research output," the currency at R&D-flavoured teams (Irdeto, Anybrain). **Don't save it for the end:** create the ~10-section skeleton when Phase 6 starts and make *"its report section is drafted"* part of each phase's definition of done. The structure falls out of [docs/FINDINGS.md](FINDINGS.md): problem → data → windowed vs sequence → small-N rigor (ablation / CIs / calibration / serving-fidelity) → scale-up (Phase 6) → verification reframe (Phase 6/D) → evasion frontier (Phase 7) → pretraining (Phase 8). Post after Phase 8.
-- [ ] `docs/REPORT.md` skeleton (created at Phase 6 start; section drafted per phase)
+- [x] `docs/REPORT.md` skeleton — *created* (10 sections mapped to the existing docs; draft per phase)
 - [ ] arXiv submission + blog post (after Phase 8)
 
 **README rewrite at end of Phase 5** — ✅ effectively done (self-updating results block via `scripts/generate_results.py`, GIF hero, funnel). Keep the results block pipeline-backed as Phases 6–9 add rows.
