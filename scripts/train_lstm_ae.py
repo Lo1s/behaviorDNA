@@ -25,6 +25,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from pipeline.ingestion.run import _is_cheat_session
 from pipeline.models.lstm_ae import save_lstm_ae, train_lstm_ae
 from pipeline.sequences.dataset import EventSequenceDataset
 from pipeline.sequences.preprocessing import (
@@ -41,12 +42,21 @@ MODELS_DIR = ROOT / "models"
 
 
 def _load_legit_tensors() -> tuple[list[np.ndarray], list[str]]:
-    """Convert every JSON in ``data/raw/`` to an (N, 8) event tensor."""
+    """Convert every **legit** JSON in ``data/raw/`` to an (N, 8) event tensor.
+
+    Cheat sessions are skipped: the LSTM-AE is a legit-manifold anomaly detector,
+    so cheat recordings must not contaminate its training distribution (same
+    rationale as the identification-split exclusion). Detection reuses the
+    canonical ``pipeline.ingestion.run._is_cheat_session`` flag.
+    """
     tensors: list[np.ndarray] = []
     names: list[str] = []
     for path in sorted(RAW_DIR.glob("*.json")):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
+        if _is_cheat_session(data):
+            log.info("Skipping cheat session %s (not legit training data)", path.name)
+            continue
         tensor = session_to_event_tensor(data)
         if len(tensor) == 0:
             log.warning("Skipping %s — no parseable events", path.name)
