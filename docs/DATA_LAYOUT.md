@@ -9,7 +9,7 @@ can't contain SCM-tracked files, or `dvc add/commit` and CI's `dvc pull`/`repro`
 ```
 data/raw/                 (dvc pull to populate)
   *.json          ← LEGIT recordings — the active identification dataset (18 GTA sessions)
-  cheat/          ← REAL cheat recordings (cheat_sim-injected) + cheat_activity.jsonl
+  cheat/          ← REAL cheat recordings (cheat_sim-injected)
   mock/           ← old mock/desktop batch (excluded)
   real_data/      ← earlier real batch (excluded)
 ```
@@ -42,6 +42,12 @@ Folder placement is the primary separation, but a session is *also* identified a
 `cheat_label`). The identification split (`pipeline/features/split.py`) and the sequence-AE
 loaders also exclude flagged cheat sessions, so a cheat recording accidentally left at the top
 level is still kept out of the legit models. **New cheat recordings belong in `data/raw/cheat/`.**
+
+Cheat **labels** (`cheat_segments_typed`) are derived from the in-band F8/F9/F10 toggle keys
+captured in the recording itself, via `scripts/label_cheat_segments.py` — no external file needed.
+(`collector/cheat_sim.py` also writes an optional per-run `cheat_activity_<UTCstamp>.jsonl`
+out-of-band cross-check log; the pipeline never reads it, and `*.json`-only globs ignore any that
+land here. The legacy single-session `cheat_activity.jsonl` was removed as redundant.)
 
 ## DVC workflow
 

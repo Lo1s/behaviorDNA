@@ -338,8 +338,12 @@ def main() -> int:
 
     print(__doc__.split("Usage")[0])  # banner
 
-    # Per-run log filename so successive sessions don't overwrite one another —
-    # this typed on/off + difficulty log is the out-of-band ground truth.
+    # Per-run timestamped filename so successive sessions don't overwrite one
+    # another (an earlier fixed `cheat_activity.jsonl` kept only the last run).
+    # This is an OPTIONAL out-of-band cross-check log — the *authoritative* cheat
+    # labels come from the in-band F8/F9/F10 toggle keys captured in the recording
+    # itself (scripts/label_cheat_segments.py → cheat_segments_typed). The pipeline
+    # never reads this file; it's provenance / a fallback if in-band toggles get lost.
     log_path = OUTPUT_DIR / (
         f"cheat_activity_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.jsonl"
     )
