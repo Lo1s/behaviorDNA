@@ -2,7 +2,7 @@
 
 Targeted enhancements aimed at ML/AI roles at anti-cheat companies (Anybrain, Irdeto, BattlEye R&D, Riot's anti-cheat team, etc.).
 
-The repo already has a solid classical-ML foundation: 18 features, 7 model types, batch API, Streamlit dashboard, DVC pipeline, CI, MLflow tracking, external dataset analysis (CS2CD + CaptchaSolve30k).
+The repo already has a solid classical-ML foundation: 30 windowed features (decoupled into a 25-feature identifier slice + 30-feature cheat-detector slice), 7 model types, batch API, Streamlit dashboard, DVC pipeline, CI, MLflow tracking, external dataset analysis (CS2CD + CaptchaSolve30k).
 
 This roadmap adds the four things hiring managers at AI-focused anti-cheat companies look for:
 
@@ -18,13 +18,13 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 | Phase | Goal | Status |
 |---|---|---|
 | 1. [Trajectory & temporal features](#phase-1--trajectory--temporal-features) | 7 new anti-cheat-relevant features | ✅ Done |
-| 1.5. [Feature expansion (optional)](#phase-15--feature-expansion-optional) | Backlog of further feature ideas, revisited after Phase 5 | 📝 Backlog |
+| 1.5. [Feature expansion (optional)](#phase-15--feature-expansion-optional) | CS2-validated feature promotion + ID/cheat feature-set split | 🚧 Partial — 5 features promoted ([nb 18](../notebooks/18_signal_importance_cs2.ipynb)); ID/cheat sets decoupled; rest data-gated |
 | 2. [LSTM autoencoder](#phase-2--lstm-autoencoder-for-anomaly-detection) | Deep-learning sequence model | ✅ Done |
 | 3. [Adversarial bots](#phase-3--adversarial-bot-generation--detection-benchmark) | Synthetic cheat generator + detection benchmark | ✅ Done |
 | 4. [Streaming + risk aggregation](#phase-4--session-level-risk-aggregation--streaming-api) | Bayesian multi-detector aggregator + WebSocket API + live dashboard | ✅ Infra done; combined risk saturates on real data → 4.1 |
 | 4.1. [Live recorder + aggregator redesign](#phase-41--live-recorder--multi-user-backlog) | Aggregator redesign (real data), live recorder, WS auth | 📝 Backlog |
 | 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ✅ Done (5a–5e); MLOps in [docs/MLOPS.md](docs/MLOPS.md) |
-| 6. [Public-corpus identification + verification](#phase-6--public-corpus-identification--verification) | Run the pipeline at 10–120 users (Balabit/SapiMouse); reframe ID as verification/open-set (EER, smurf detection) | ⬜ Not started |
+| 6. [Public-corpus identification + verification](#phase-6--public-corpus-identification--verification) | Run the pipeline at 10–120 users (Balabit/SapiMouse); reframe ID as verification/open-set (EER, smurf detection) | ✅ Done (2026-06-11) — Balabit EER 0.144 @ 10 users; REPORT.md §6 pending |
 | 7. [Detection-vs-evasion frontier](#phase-7--detection-vs-evasion-frontier) | Parameterised cheat "humanizer"; detector-AUC-vs-evasion curve + equilibrium | ⬜ Not started |
 | 8. [Self-supervised pretraining](#phase-8--self-supervised-pretraining) | Pretrain the sequence encoder on CaptchaSolve30k; data-efficiency curve | ⬜ Not started (GPU desktop) |
 | 9. [Outcome-labelled telemetry](#phase-9--outcome-labelled-telemetry) | CS2 demo parsing → kills/damage/accuracy per window; supervised detection + aggregator re-attempt | ⬜ Not started (spike early) |
@@ -39,9 +39,9 @@ Agreed sequencing for the remaining work, now that real recordings are in. Rigor
 2. ~~**5c notebook 14 — mock→real drift walkthrough.**~~ ✅ **done** — `notebooks/14_drift.ipynb`.
 3. ~~**5b — calibration** (reliability diagrams, Brier/ECE).~~ ✅ **done** — `notebooks/13_calibration.ipynb`; isotonic improved Brier, Platt hurt (small-N fragility, same root cause as the aggregator saturation).
 4. ~~**5d — ablation study.**~~ ✅ **done** — revealed over-parameterisation at N=18; redundant fingerprint across families.
-5. ~~**1.5 — feature expansion.**~~ ✅ **gate resolved: SKIP/defer** — 5d says the model already has too many features for the data (see Phase 1.5 note). Revisit only with much more data.
+5. ~~**1.5 — feature expansion.**~~ ✅ **done (partial promotion, 2026-06-08→10)** — rather than add to the over-parameterised GTA set (the 5d gate still holds), validated a windowed signal bank on external **CS2CD** ([nb 18](../notebooks/18_signal_importance_cs2.ipynb)) where N is large, **promoted 5 cheat features**, and **decoupled the ID vs cheat feature sets** (`ID_FEATURE_COLS` 25 / `CHEAT_FEATURE_COLS` 30) so they don't trade off at small N. Remaining (outcome/system) signals are data-gated → [docs/SIGNALS.md](SIGNALS.md).
 6. ~~**4.1 — aggregator redesign.**~~ ⏸️ **verified blocked & deferred** — prototyped feeding the chunk signal into the live score; all session aggregations ≈ 0.50 (legit natural-variance tail + synthetic sparse injection). Unblock = **real continuous cheat data** ([docs/CHEAT_DATA_COLLECTION.md](CHEAT_DATA_COLLECTION.md)), not more code.
-7. ~~**5e + CI pre-ingestion hook.**~~ ✅ **done** — `scripts/promote_model.py` (registry promotion, verified live on DagsHub) + CI validation gate + `docs/MLOPS.md`. **Roadmap complete** — remaining work is data-gated (real cheat recordings → 4.1) or scales with more sessions.
+7. ~~**5e + CI pre-ingestion hook.**~~ ✅ **done** — `scripts/promote_model.py` (registry promotion, verified live on DagsHub) + CI validation gate + `docs/MLOPS.md`. **Original (Phase 1–5) roadmap complete** — the extension (Phases 6–9 + tech report) is below; Phase 6 is done. Remaining classical work is data-gated (real cheat recordings → 4.1) or scales with more sessions.
 
 > **Pre-recording readiness (done):** ahead of the real GTA recordings, shipped data-independent infra — drift detection (5c), a recording QC gate (`scripts/validate_recordings.py`), polling-rate normalization, and dependency fixes. See the [Pre-recording readiness](#pre-recording-readiness-done-while-waiting-for-real-recordings) section and the Recording Arrival Runbook in [docs/MONITORING.md](MONITORING.md).
 
@@ -49,11 +49,11 @@ Agreed sequencing for the remaining work, now that real recordings are in. Rigor
 
 Phases 1–5 closed the original portfolio scope (end-to-end pipeline, deep model, adversarial benchmark, statistical rigor) — but on **3 players / 1 cheat recorder**, which is the credibility ceiling. Phases 6–9 attack that ceiling, ordered by impact-per-evening **and** by what's unblocked now:
 
-1. **Phase 6 — public-corpus ID + verification (A + D merged).** Highest credibility ROI and CPU-only. Answers the killer question ("does it survive beyond 3 friends?") on Balabit/SapiMouse **and** reframes ID as the actual industry problem (verification / open-set / smurf detection) — one dataset-adapter effort buys both. The [feature-set decoupling](SIGNALS.md) we shipped makes the mouse-only slice a three-line change. **Do first.**
+1. ~~**Phase 6 — public-corpus ID + verification (A + D merged).**~~ ✅ **done (2026-06-11)** — Balabit (10 users) closed-set 0.59 / impostor EER 0.144; SapiMouse (120 users) signal survives but data-starved + open-set rejection at chance. The honest two-sided scale answer ([docs/VERIFICATION.md](VERIFICATION.md), [nb 19](../notebooks/19_identification_at_scale_public.ipynb)). Only remaining bit: expand REPORT.md §6 from draft.
 2. **Phase 9 — outcome telemetry, *spike now / execute later*.** Data-collection lead time is the bottleneck, not code. Run the **one-evening feasibility spike** (can `demoparser2` pull view-angles + damage from your own CS2 demo, clock-synced to a simultaneous recorder run?) **during Phase 6**, then let dual-capture sessions accumulate in the background while you build 7.
 3. **Phase 7 — detection-vs-evasion frontier (C).** Most anti-cheat-native; CPU-friendly (scores through the existing LSTM-AE). `live_cheat.py` already has the easing/overshoot/jitter planners — a humanization strength knob λ parameterises what exists.
-4. **Phase 8 — self-supervised pretraining (B).** Highest research-credential ROI but **needs the GPU desktop** and is the heaviest lift. Attacks the *actual* limiting factor (data, per the architecture comparison) — "a small foundation model for human input motion." Fold the [pending canonical LSTM-AE retrain](#tooling-backlog) into its first desktop session.
-5. **Tech report (F) — grown, not written.** Create the ~10-section skeleton when Phase 6 starts; "its report section is drafted" is part of each phase's definition of done. Post to arXiv after Phase 8; the blog post is a condensation. The structure falls out of [docs/FINDINGS.md](FINDINGS.md).
+4. **Phase 8 — self-supervised pretraining (B).** Highest research-credential ROI but **needs the GPU desktop** and is the heaviest lift. Attacks the *actual* limiting factor (data, per the architecture comparison) — "a small foundation model for human input motion." (The canonical LSTM-AE retrain that used to be folded in here is already [done](#tooling-backlog).)
+5. **Tech report (F) — grown, not written.** ✅ skeleton created ([docs/REPORT.md](REPORT.md)); §6 (Phase 6) drafted, §§1–5 source from existing evidence. "Its report section is drafted" is part of each phase's definition of done. Post to arXiv after Phase 8; the blog post is a condensation. The structure falls out of [docs/FINDINGS.md](FINDINGS.md).
 
 > Same contract as before: **a guide, not a promise** — revisit if implementing one phase changes what the next should be. The honest-positioning rule still holds: a null result (mouse-only ID drops; pretraining doesn't transfer; the domain gap dominates) is a publishable finding, not a failure.
 
@@ -355,7 +355,7 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 - **Objective:** start with **masked-step reconstruction** on the existing 8-D event tensors (reuses `pipeline/sequences/dataset.py` + the AE encoder nearly unchanged). Contrastive is the stretch goal, not the first move.
 - **Corpus:** **CaptchaSolve30k** (~20k human mouse sessions, already cached — see notebook 05). First **measure the captcha→game domain gap** with the existing drift tooling (`pipeline/monitoring/drift.py`) — a finding either way, and it de-risks the transfer claim.
 - **Headline experiment:** **data-efficiency curve** — chunk AUC vs number of fine-tuning sessions (2, 5, 10, 18), pretrained vs from-scratch, on **both** GTA and CS2CD. Pretraining-wins-at-low-N = the foundation-model line; pretraining-doesn't-help = domain gap dominates, also a real result.
-- Fold the [pending canonical LSTM-AE retrain](#tooling-backlog) into the first desktop session.
+- The canonical LSTM-AE retrain that used to be staged for "the first desktop session" is already [done](#tooling-backlog) (2026-06-12).
 
 **Deliverables:**
 - [ ] `pipeline/pretraining/` — masked-step objective + dataloader
@@ -385,7 +385,7 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 
 ## Cross-cutting
 
-**Tech report (F) — grown, not written.** Condense the 14 docs into one ~10-page arXiv-style report — *"Input-level behavioural biometrics for cheat detection: what works at small N"* — plus a blog-post condensation. Submitting (even arXiv-only) converts "portfolio repo" into "research output," the currency at R&D-flavoured teams (Irdeto, Anybrain). **Don't save it for the end:** create the ~10-section skeleton when Phase 6 starts and make *"its report section is drafted"* part of each phase's definition of done. The structure falls out of [docs/FINDINGS.md](FINDINGS.md): problem → data → windowed vs sequence → small-N rigor (ablation / CIs / calibration / serving-fidelity) → scale-up (Phase 6) → verification reframe (Phase 6/D) → evasion frontier (Phase 7) → pretraining (Phase 8). Post after Phase 8.
+**Tech report (F) — grown, not written.** Condense the 14 docs into one ~10-page arXiv-style report — *"Input-level behavioural biometrics for cheat detection: what works at small N"* — plus a blog-post condensation. Submitting (even arXiv-only) converts "portfolio repo" into "research output," the currency at R&D-flavoured teams (Irdeto, Anybrain). **Don't save it for the end:** the ~10-section skeleton is created ([docs/REPORT.md](REPORT.md)) with §6 drafted — keep *"its report section is drafted"* part of each phase's definition of done. The structure falls out of [docs/FINDINGS.md](FINDINGS.md): problem → data → windowed vs sequence → small-N rigor (ablation / CIs / calibration / serving-fidelity) → scale-up (Phase 6) → verification reframe (Phase 6/D) → evasion frontier (Phase 7) → pretraining (Phase 8). Post after Phase 8.
 - [x] `docs/REPORT.md` skeleton — *created* (10 sections mapped to the existing docs; draft per phase)
 - [ ] arXiv submission + blog post (after Phase 8)
 
