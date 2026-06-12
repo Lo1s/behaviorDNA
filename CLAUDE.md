@@ -19,7 +19,7 @@ dvc repro
 dvc repro features
 
 # Tests
-pytest -q                                 # full suite (~317 tests)
+pytest -q                                 # full suite (~372 tests)
 pytest tests/test_features.py::test_x     # single test
 pytest -q --no-header -k adversarial      # by keyword
 
@@ -45,7 +45,7 @@ python -m pipeline.adversarial.benchmark
 
 ## Architecture (the parts you can't see from `ls`)
 
-The system is a **5-stage DVC pipeline** defined in `dvc.yaml`. Each stage is a Python module under `pipeline/` and produces a Parquet (or model artifact) that the next stage depends on. Files in `data/raw/`, `data/processed/`, `data/splits/`, `data/external/`, `data/synthetic/`, and `models/` are all DVC-managed (gitignored except `.gitkeep`).
+The system is a **5-stage DVC pipeline** defined in `dvc.yaml`. Each stage is a Python module under `pipeline/` and produces a Parquet (or model artifact) that the next stage depends on. `data/raw/`, `data/processed/`, `data/splits/`, `data/external/`, `data/synthetic/`, and `models/` are DVC-managed (gitignored). **`data/raw/` is a whole-dir DVC output → do NOT git-track any file inside it** (a `.gitkeep`/README there makes `dvc add/commit`/CI's `dvc pull` fail with "output already tracked by SCM"); its layout/recording-separation doc lives in [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md). Inside `data/raw/`: legit recordings at the top level, real cheat recordings in `data/raw/cheat/` (see design choice #9).
 
 ```
 collector/ (Windows-side .exe)            recorder_gui.py / record_session.py
@@ -77,9 +77,9 @@ data/splits/
 
 3. **No z-score scaling in the feature stage.** `StandardScaler` is deliberately applied only inside `pipeline/training/run.py` (on the training fold), never in `pipeline/features/run.py`. This prevents train/test leakage.
 
-4. **Session-level splits.** `pipeline/features/split.py` uses `GroupShuffleSplit` by `session_id` so all windows from one recording stay in one fold. Players with fewer than `min_sessions_per_player` sessions (configured in `configs/training.yaml`, default 3) are dropped. With very few sessions, empty splits are written (pipeline still passes).
+4. **Player-stratified, session-level splits.** `pipeline/features/split.py` does a **per-player whole-session holdout** (not `GroupShuffleSplit`): every retained player appears in train/val/test, and all windows from one session stay in one fold. Players with fewer than `min_sessions_per_player` sessions (`configs/training.yaml`, default 3) are dropped; with very few sessions, empty-but-valid splits are written. **Cheat sessions are excluded** from the identification split (`is_cheat_session` flag — see #9), so the identifier trains on legit play only.
 
-5. **Model selection is config-driven.** `pipeline/training/run.py` reads `model.type` and `model.task` from `configs/training.yaml`. Identification: lightgbm/random_forest/xgboost/svc. Anomaly: isolation_forest/lof/one_class_svm. ONNX export only happens for sklearn-compatible classifiers.
+5. **Model selection is config-driven.** `pipeline/training/run.py` reads `model.type` and `model.task` from `configs/training.yaml`. Identification: lightgbm/random_forest/xgboost/svc. Anomaly: isolation_forest/lof/one_class_svm. ONNX export (sklearn-compatible classifiers only) goes through `pipeline/onnx_export.py` — a **bit-faithful float64 export** with a CI parity gate (fixes the earlier onnxmltools multiclass-converter fidelity bug; see `docs/FINDINGS.md`).
 
 5b. **LSTM autoencoder lives outside the sklearn dispatch.** `pipeline/models/lstm_ae.py` is a PyTorch model trained on raw event sequences (Phase 2). It's invoked via `pipeline/adversarial/benchmark.py:run_lstm_ae_benchmark` for synthetic-cheat evaluation. The DVC pipeline does NOT currently dispatch to it (deferred to a future Phase 2.1 — the chunk-level benchmark already proves the model). GPU is auto-detected; the code runs on CUDA when available (`torch.cuda.is_available()`) and falls back to CPU silently. The persisted artifact lives at `models/lstm_ae.pt` + `models/lstm_ae_meta.json`; regenerate via `python -m scripts.train_lstm_ae`. See `docs/LSTM_AE.md`.
 
@@ -89,22 +89,27 @@ data/splits/
 
 7. **Session JSON schema is forward-compatible.** Recordings carry extra metadata fields (`activity`, `polling_rate`, `resolution`, `grip_style`, `dominant_hand`, `warmup`) that are read via `data.get()` in the ingestion pipeline. Old session files without these fields still ingest successfully.
 
-8. **Adversarial module produces drop-in synthetic sessions.** `pipeline/adversarial/bot_generator.py` injects aimbot / triggerbot / macro signatures into legit recordings while preserving the recorder JSON schema, so the full pipeline accepts them unchanged. The key finding (documented in `docs/ADVERSARIAL.md`): the current 18 window features fail at AUC ≈ 0.5 — this motivates Phases 1 and 2 of the roadmap.
+8. **Adversarial module produces drop-in synthetic sessions.** `pipeline/adversarial/bot_generator.py` injects aimbot / triggerbot / macro signatures into legit recordings while preserving the recorder JSON schema, so the full pipeline accepts them unchanged. The original Phase-3 finding (`docs/ADVERSARIAL.md`): the *first* 18 window features detected aimbots at AUC ≈ 0.5 — which motivated Phase 1 (trajectory/reaction features → 30) and Phase 2 (the LSTM-AE on raw sequences).
+
+9. **Cheat vs legit recordings are separated by folder AND flag.** Legit recordings live at the top of `data/raw/`; real cheat recordings (cheat_sim-injected) live in `data/raw/cheat/`. A session is *also* flagged by `pipeline.ingestion.run._is_cheat_session` (typed/untyped cheat spans or a non-`legit` `cheat_label`). Non-recursive `*.json` globs (ingestion, `train_lstm_ae`, `compare_architectures._load_legit_tensors`, validate, dashboard, `generate_dataset`) see legit only; the cheat-detection evaluators (`compare_architectures --eval-data real`, `benchmark --data-dir data/raw`) additionally scan `cheat/`. **Authoritative cheat labels** (`cheat_segments_typed`) come from in-band F8/F9/F10 toggle keys in the recording itself via `scripts/label_cheat_segments.py` — not from any external log. Full map: `docs/DATA_LAYOUT.md` / `docs/CHEAT_DATA_COLLECTION.md`.
 
 ## Conventions
 
 - **Git commits**: do not include a `Co-Authored-By` trailer (user preference).
+- **Push to BOTH remotes**: `git push origin main && git push dagshub main` (DagsHub renders the public README). For DVC-tracked data/model changes, `dvc push` to the DagsHub remote too.
+- **README results are self-updating**: headline numbers come from `scripts/generate_results.py` (CI-gates `--check`). Don't hand-edit the results block / metrics — regenerate instead.
 - **Plan mode**: substantial features (anything touching multiple modules) should be planned via the existing roadmap in `docs/ROADMAP.md`. Each completed phase updates its checklist and status.
-- **Tutorial-style notebooks**: notebooks 09, 10, 16, 17, 18 (and 11–15) are intentionally written as step-by-step tutorials with diagrams and visualizations — the user uses them as study material, so verbosity is a feature not a bug. Notebooks 16/17 are GPU-live (seeded; absolute AUCs may wobble ~±0.01 run-to-run, ranking is stable). Notebook 18 (signal-importance research on CS2CD) is CPU-fast.
-- **Pre-commit hooks** auto-run ruff + black + trailing-whitespace + end-of-file-fixer on commit. If a hook modifies files, re-stage and re-commit; don't use `--no-verify`.
+- **Tutorial-style notebooks**: notebooks 09, 10, 16, 17, 18, 19 (and 11–15) are intentionally written as step-by-step tutorials — the user uses them as study material, so verbosity is a feature not a bug. Notebooks 16/17 are GPU-live (seeded; absolute AUCs may wobble ~±0.01 run-to-run, ranking is stable). Notebooks 18 (CS2CD signal importance) and 19 (public-corpus ID, Phase 6) are CPU-fast.
+- **Pre-commit hooks** auto-run ruff + black + trailing-whitespace + end-of-file-fixer on commit. If a hook modifies files, re-stage and re-commit; don't use `--no-verify`. The EOF-fixer commonly rewrites JSON reports → re-stage the JSON + re-commit. (black skips notebooks in CI/pre-commit; **ruff is the notebook lint gate**.)
 
 ## Where to look
 
-- [README.md](README.md) — public-facing project overview
-- [docs/ROADMAP.md](docs/ROADMAP.md) — 5-phase portfolio roadmap with status
-- [docs/ETHICS.md](docs/ETHICS.md) — data collection methodology, anti-cheat compatibility
-- [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) — Phase 3 methodology + key finding
-- [docs/RECORDING_INSTRUCTIONS.md](docs/RECORDING_INSTRUCTIONS.md) — player-facing guide
-- `configs/training.yaml` — model + data split configuration (the only knob users tune)
-- `notebooks/01_*` through `notebooks/07_*` — foundational data + model analysis
-- `notebooks/10_adversarial_bots.ipynb` — current largest tutorial (32 cells)
+- [README.md](README.md) — public-facing overview (results block is auto-generated)
+- [docs/ROADMAP.md](docs/ROADMAP.md) — roadmap + status: Phases 1–5 done, 6 done, 1.5 partial, 7–9 not started
+- [docs/FINDINGS.md](docs/FINDINGS.md) — the honest results in one page (small-N rigor, ONNX bug, etc.)
+- [docs/SIGNALS.md](docs/SIGNALS.md) — signal/feature research + ID-vs-cheat feature-set decoupling + data-collection roadmap
+- [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md) — `data/raw/` legit/cheat layout + which consumer reads what
+- [docs/ARCHITECTURE_COMPARISON.md](docs/ARCHITECTURE_COMPARISON.md) · [docs/VERIFICATION.md](docs/VERIFICATION.md) · [docs/STREAMING.md](docs/STREAMING.md) · [docs/MLOPS.md](docs/MLOPS.md) · [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) · [docs/ETHICS.md](docs/ETHICS.md)
+- [docs/REPORT.md](docs/REPORT.md) — grow-as-you-go arXiv-style tech report (skeleton; §6 drafted)
+- `configs/training.yaml` — model + data-split configuration (the main knob users tune)
+- `notebooks/01_*`–`07_*` foundational analysis · `10` adversarial bots · `12` explainability · `16` architecture deep-dive · `17` ID at scale (CS2) · `18` signal importance · `19` public-corpus ID/verification
