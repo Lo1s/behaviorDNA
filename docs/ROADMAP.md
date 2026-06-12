@@ -315,7 +315,7 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 - [x] Users-curve + verification run — `scripts/run_external_identification.py` → `reports/external_identification.json` (seed 42)
 - [x] README results rows via `generate_results.py` (auto-generated, CI-gated)
 - [x] `docs/VERIFICATION.md` — results + the product reframe
-- [ ] `notebooks/19_identification_at_scale_public.ipynb` — fill the skeleton into the tutorial walkthrough (plots: users-curve, DET; the JSON + runner make this mechanical)
+- [x] `notebooks/19_identification_at_scale_public.ipynb` — tutorial walkthrough, executed end-to-end (users-curve + DET/EER recomputed live from the corpora; segmentation demo: 4.3 h session → 3 windows without `split_on_idle`, 245 with)
 - [ ] REPORT.md §6 — expand the draft into the full section
 
 **Key results (2026-06-11):** Balabit (10 users, hours/user): closed-set **0.59** acc (chance 0.10), **impostor-detection EER 0.144** over 784 labelled sessions — the literature-comparable headline, from the unmodified GTA pipeline. SapiMouse (120 users, *minutes*/user): accuracy stays **10–20× chance** all the way to 120 users (0.11 @ chance 0.008) but absolute performance is data-starved at ~6 train windows/user, and **open-set rejection is chance-level** — softmax confidence is not an identity score. The scale answer is honest and two-sided: *the signal survives; the data budget is the binding constraint* → directly motivates Phase 8 (pretraining) and embedding-based verification. Full numbers: [docs/VERIFICATION.md](VERIFICATION.md).
