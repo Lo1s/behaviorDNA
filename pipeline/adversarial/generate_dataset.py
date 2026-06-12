@@ -101,7 +101,9 @@ def run() -> None:
         stream=sys.stdout,
     )
 
-    # Only flat .json files in data/raw/ (skip subdirs like mock/ and real_data/)
+    # Only flat .json files in data/raw/ (skip subdirs: mock/, real_data/, cheat/).
+    # Top-level is the legit dataset, so synthetic cheats are injected only into
+    # legit recordings — never into the real cheat sessions in cheat/.
     sources = sorted(p for p in RAW_DIR.glob("*.json"))
     if not sources:
         log.warning("No JSON files in %s — nothing to do", RAW_DIR)

@@ -166,7 +166,15 @@ def _eval_chunks(stats: dict, data_dir: Path):
     synthetic single-type dataset this is identical to the old binary flagging.
     """
     legit, cheat = [], {c: [] for c in CHEATS}
-    for p in sorted(data_dir.glob("*.json")):
+    # Top-level holds legit recordings; cheat recordings live in the cheat/
+    # subfolder (see data/raw/README.md). Scan both so the legit baseline and
+    # the cheat chunks are both present; per-file _chunk_cheat_labels does the
+    # binning. The synthetic dataset has no cheat/ subdir → unchanged.
+    paths = sorted(data_dir.glob("*.json"))
+    cheat_subdir = data_dir / "cheat"
+    if cheat_subdir.is_dir():
+        paths += sorted(cheat_subdir.glob("*.json"))
+    for p in paths:
         with open(p, encoding="utf-8") as f:
             d = json.load(f)
         t = session_to_event_tensor(d)

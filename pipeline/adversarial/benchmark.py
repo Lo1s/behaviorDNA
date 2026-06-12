@@ -763,7 +763,15 @@ def run_lstm_ae_benchmark(
     # difficulty bucket (JSON field, else synthetic filename suffix).
     paths_by_label: dict[str, list[Path]] = {}
     difficulty_by_path: dict[Path, str | None] = {}
-    for path in sorted(synthetic_dir.glob("*.json")):
+    # Top-level holds legit recordings; real cheat recordings live in the cheat/
+    # subfolder (see data/raw/README.md). Scan both so the legit baseline AND the
+    # labelled cheat sessions are included. The synthetic dataset has no cheat/
+    # subdir, so this is a no-op there.
+    bench_paths = sorted(synthetic_dir.glob("*.json"))
+    cheat_subdir = synthetic_dir / "cheat"
+    if cheat_subdir.is_dir():
+        bench_paths += sorted(cheat_subdir.glob("*.json"))
+    for path in bench_paths:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         paths_by_label.setdefault(data.get("cheat_label", "legit"), []).append(path)
