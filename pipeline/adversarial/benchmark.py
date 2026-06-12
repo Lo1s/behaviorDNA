@@ -764,7 +764,7 @@ def run_lstm_ae_benchmark(
     paths_by_label: dict[str, list[Path]] = {}
     difficulty_by_path: dict[Path, str | None] = {}
     # Top-level holds legit recordings; real cheat recordings live in the cheat/
-    # subfolder (see data/raw/README.md). Scan both so the legit baseline AND the
+    # subfolder (see docs/DATA_LAYOUT.md). Scan both so the legit baseline AND the
     # labelled cheat sessions are included. The synthetic dataset has no cheat/
     # subdir, so this is a no-op there.
     bench_paths = sorted(synthetic_dir.glob("*.json"))

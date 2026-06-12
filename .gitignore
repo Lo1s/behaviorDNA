@@ -24,11 +24,10 @@ data/synthetic/*
 !data/**/.gitkeep
 # ...but the corpus-layout README + empty Phase-6 corpus dirs are tracked
 # (a file can't be re-included if its parent dir is excluded, hence the
-#  re-include-dir / ignore-contents / re-include-keep dance)
-!data/raw/README.md
-!data/raw/cheat/
-data/raw/cheat/*
-!data/raw/cheat/.gitkeep
+#  re-include-dir / ignore-contents / re-include-keep dance).
+# NOTE: data/raw is a whole-dir DVC output, so nothing inside it is git-tracked
+# (DVC forbids SCM-tracked files in an output dir). Its layout doc lives in
+# docs/DATA_LAYOUT.md instead.
 !data/external/README.md
 !data/external/balabit/
 data/external/balabit/*

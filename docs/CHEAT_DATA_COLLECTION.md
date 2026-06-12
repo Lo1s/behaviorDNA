@@ -236,7 +236,7 @@ matched tryhard-legit sessions on the *same* gear.
    → writes typed `cheat_segments_typed` natively (no order-based reconstruction needed —
    that was a one-off for the first batch, whose in-band toggles had been stripped).
 3. Drop the cheat recordings into **`data/raw/cheat/`** (the cheat subfolder — keeps them out
-   of the legit identification set; see [`data/raw/README.md`](../data/raw/README.md)) and re-run
+   of the legit identification set; see [`docs/DATA_LAYOUT.md`](DATA_LAYOUT.md)) and re-run
    `python -m pipeline.adversarial.benchmark --data-dir data/raw --lstm-chunk-only`
    → `--data-dir data/raw` scans both the legit top level and `cheat/`, pooling cheat chunks
    **per type across all players/sessions** automatically, so cross-player numbers appear with no

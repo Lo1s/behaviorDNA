@@ -167,7 +167,7 @@ def _eval_chunks(stats: dict, data_dir: Path):
     """
     legit, cheat = [], {c: [] for c in CHEATS}
     # Top-level holds legit recordings; cheat recordings live in the cheat/
-    # subfolder (see data/raw/README.md). Scan both so the legit baseline and
+    # subfolder (see docs/DATA_LAYOUT.md). Scan both so the legit baseline and
     # the cheat chunks are both present; per-file _chunk_cheat_labels does the
     # binning. The synthetic dataset has no cheat/ subdir → unchanged.
     paths = sorted(data_dir.glob("*.json"))
