@@ -409,3 +409,24 @@ class TestServingBundle:
         save_stream_bundle(state, bundle)
         loaded = load_or_build_stream_state(bundle_path=bundle)
         assert set(loaded.classical_detectors) == {"IsolationForest"}
+
+
+# ---------------------------------------------------------------------------
+# Bounded memory over a long (always-on) session
+# ---------------------------------------------------------------------------
+
+
+class TestBoundedBuffers:
+    def test_window_buffer_stays_bounded_over_long_session(self):
+        # 10 windows of events at 100ms spacing (~3000 events / ~300s). The
+        # per-window buffer must stay ~one window's size, not grow with the whole
+        # session (regression guard against the old unbounded self.events list).
+        state = _stream_state(chunk_length=8)
+        per_window = WINDOW_MS // 100  # events per 30s window at 100ms spacing
+        n = int(per_window * 10)
+        for i in range(n):
+            state.push_event(_event(i * 100.0))
+        assert len(state.window_buffer) <= per_window + 10
+        final = state.finalize()
+        assert final.n_events == n  # counter is exact even though events aren't kept
+        assert final.n_windows >= 9

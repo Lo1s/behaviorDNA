@@ -235,8 +235,14 @@ class SessionStreamState:
         self.rate_norm = rate_norm
         self.device = device
 
-        # Per-session running state
-        self.events: list[dict] = []
+        # Per-session running state. We keep a bounded per-window buffer (events
+        # in the *current* 30s window only) instead of the whole event history,
+        # so memory stays flat over an always-on session and each window flush
+        # scans one window — not O(session). ``n_events`` is just a counter; the
+        # chunk buffer is already bounded (sliced on every flush).
+        self.n_events: int = 0
+        self._last_t: Optional[float] = None
+        self.window_buffer: list[dict] = []
         self.first_event_t: Optional[float] = None
         self.next_window_end_t: Optional[float] = None
         self.completed_windows: list[dict] = []
@@ -292,16 +298,22 @@ class SessionStreamState:
             self.first_event_t = t
             self.next_window_end_t = t + WINDOW_MS
 
-        self.events.append(event)
+        self.n_events += 1
+        self._last_t = t
+        self.window_buffer.append(event)
         self.chunk_buffer.append(event)
 
         triggered: list[str] = []
 
         # Flush a window when we cross its end timestamp
         while self.next_window_end_t is not None and t >= self.next_window_end_t:
-            self._flush_window(
-                self.next_window_end_t - WINDOW_MS, self.next_window_end_t
-            )
+            w_end = self.next_window_end_t
+            self._flush_window(w_end - WINDOW_MS, w_end)
+            # Bounded memory: drop events from the window just flushed (or earlier
+            # empty windows); keep only events for windows >= w_end.
+            self.window_buffer = [
+                e for e in self.window_buffer if float(e.get("t", 0.0)) >= w_end
+            ]
             self.next_window_end_t += WINDOW_MS
             triggered.append("window")
 
@@ -327,13 +339,9 @@ class SessionStreamState:
         chunk would feed it an input distribution it never saw in training, so
         those leftover events are dropped. Idempotent — safe to call repeatedly.
         """
-        if not self.events:
+        if self.n_events == 0:
             return None
-        t = (
-            float(final_t)
-            if final_t is not None
-            else float(self.events[-1].get("t", 0.0))
-        )
+        t = float(final_t) if final_t is not None else float(self._last_t or 0.0)
         # Flush the trailing partial window (no-op if it has <2 events or was
         # already flushed). The partial chunk is deliberately discarded above.
         if self.next_window_end_t is not None and not self._finalized:
@@ -351,7 +359,7 @@ class SessionStreamState:
         """Score the completed window: delegate feature extraction + scoring,
         then fold the result into running session state."""
         feat_row = compute_window_feature_row(
-            self.events, w_start, w_end, self.norm_factor, self.rate_norm
+            self.window_buffer, w_start, w_end, self.norm_factor, self.rate_norm
         )
         if feat_row is None:
             return
@@ -401,7 +409,7 @@ class SessionStreamState:
         explanation = self.aggregator.explain(per_detector_real)
         update = ScoreUpdate(
             t=t,
-            n_events=len(self.events),
+            n_events=self.n_events,
             n_windows=len(self.completed_windows),
             n_chunks=len(self.lstm_chunk_scores),
             per_detector=per_detector_display,
