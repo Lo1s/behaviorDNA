@@ -435,9 +435,10 @@ with tab5:
         Optionally injects a synthetic cheat partway through so the risk score
         rises in real time — the "money shot" of the Phase 4 work.
 
-        > **Mock-data caveat:** all current `data/raw/*.json` recordings are mouse-on-desktop
-        > mock data, not real gameplay. The streaming pipeline runs correctly; the
-        > *absolute* risk magnitudes will tighten once the GTA recordings land.
+        > **Data caveat:** the recordings are real GTA mouse/keyboard sessions, but the
+        > *session-level* combined risk still saturates on the current small calibration
+        > set (18 sessions). The chunk-level detectors work; recalibration is Phase 4.1
+        > (see [`docs/STREAMING.md`](../docs/STREAMING.md)).
         """)
 
     RAW_DIR = ROOT / "data" / "raw"

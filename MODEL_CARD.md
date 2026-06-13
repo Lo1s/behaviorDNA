@@ -72,9 +72,10 @@ advisory — it is never wired to an automated action.
 
 scikit-learn single-window latency p50 **1.40 ms** / p95 **1.90 ms**,
 **~89k windows/s** batched (CPU) — comfortably real-time (one window per 30 s of
-play). An ONNX-Runtime path is ~90× faster but the current LightGBM→ONNX export
-is **numerically unfaithful** (probability MAE 0.13) and is gated/flagged, not
-used for scoring (`scripts/benchmark_inference.py`, [FINDINGS](docs/FINDINGS.md)).
+play). The ONNX-Runtime path is faster still and — after an earlier float32
+fidelity bug was found and fixed — is now a **bit-faithful float64 export**
+(probability MAE ~1e-8, 100% label agreement), guarded by a CI parity regression
+test (`pipeline/onnx_export.py`, `tests/test_onnx_export.py`, [FINDINGS #7](docs/FINDINGS.md)).
 
 ## Limitations & caveats
 
@@ -87,9 +88,10 @@ used for scoring (`scripts/benchmark_inference.py`, [FINDINGS](docs/FINDINGS.md)
   *memory-only* aimbot that never moves the OS cursor is invisible to it — which
   is why production anti-cheat also does memory/integrity scanning. Input
   biometrics is one layer, not the whole stack.
-- **Synthetic cheats:** detection is validated against synthetic injection;
-  real continuous-cheat recordings are pending (`docs/CHEAT_DATA_COLLECTION.md`).
-- **ONNX export** is not production-trustworthy for the LightGBM model (above).
+- **Synthetic cheats:** the headline detection metrics use synthetic cheat
+  injection on real legit play. Three real continuous-cheat recordings
+  (F8/F9/F10-labelled) now exist; the per-type real-cheat benchmark on them is
+  the next step (`docs/CHEAT_DATA_COLLECTION.md`).
 
 ## Ethics & data
 

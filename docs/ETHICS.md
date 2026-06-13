@@ -36,11 +36,14 @@ about compatibility with each game's anti-cheat:
 
 | Game | Anti-cheat | Assessment |
 |---|---|---|
-| CS2 | VAC | Safe — VAC targets memory cheats, not input hooks |
-| Tarkov | BattlEye | Safe — BattlEye focuses on process/memory injection |
+| CS2 | VAC | Likely low-risk (VAC targets memory cheats, not input hooks) — but **not vendor-assessed; no guarantee** |
+| Tarkov | BattlEye | Likely low-risk (BattlEye focuses on process/memory injection) — but **not vendor-assessed; no guarantee** |
 | Valorant | Vanguard (kernel) | Low risk but not zero — Vanguard is kernel-level and aggressive; tested on secondary accounts first |
 | Arc Raiders | TBD | **Avoid** — anti-cheat not fully documented, but AutoHotkey (which uses the same global OS input hook mechanism as this recorder) is known to be blocked; do not use the recorder with Arc Raiders until confirmed safe |
 
+**None of the above is vendor-sanctioned.** An input hook being harmless in
+testing is not evidence that a vendor permits it or will never flag it; do not
+run the recorder with any anti-cheat-protected game without explicit permission.
 No bans or flags were received during data collection for this project.
 Participants using Valorant were advised to test on a secondary account first.
 

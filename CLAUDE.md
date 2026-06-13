@@ -66,7 +66,7 @@ data/splits/
        │  pipeline/evaluation/run.py  →  reports/eval_metrics.json + confusion_matrix.csv
        │
        ├──► api/main.py             (FastAPI batch inference: /predict/player, /predict/anomaly)
-       └──► dashboard/app.py        (Streamlit; 4 tabs)
+       └──► dashboard/app.py        (Streamlit; 5 tabs)
 ```
 
 ### Critical design choices that aren't obvious from reading any single file

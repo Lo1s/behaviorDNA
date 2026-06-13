@@ -93,7 +93,7 @@ posterior_logit =  +6.59 + (−2.94)     =  +3.65
 posterior_risk =  sigmoid(3.65)         ≈  0.975   ← clearly flag
 ```
 
-Three independent strong signals override the conservative prior; one or two medium signals do not. **That conservatism is what keeps the false-positive rate low** — production anti-cheat needs ≤ 0.1 % FPR, which the prior enforces by default.
+Three independent strong signals override the conservative prior; one or two medium signals do not. **That conservatism biases the system toward fewer false positives** — but be precise about what a prior does: it shifts the posterior odds, it does **not** by itself guarantee an empirical false-positive rate. Production anti-cheat needs ≤ 0.1 % FPR, and that target is met by choosing the decision threshold against measured legitimate-player negatives (with uncertainty bounds), not by the prior alone.
 
 ---
 
@@ -184,7 +184,7 @@ Produces `reports/figures/phase4_chunk_detection.png` — the per-cheat-type chu
 | `tests/test_streaming.py` | 14 tests covering state machine + WebSocket via FastAPI TestClient |
 | `tests/test_replay_session.py` | 4 tests for cheat injection + offline replay JSONL output |
 
-The full suite (317 tests) passes. The streaming pipeline runs entirely on the RTX 3070 via the persisted LSTM-AE artifact and falls back to CPU automatically.
+The full suite (370+ tests) passes. The streaming pipeline runs entirely on the RTX 3070 via the persisted LSTM-AE artifact and falls back to CPU automatically.
 
 ---
 

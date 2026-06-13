@@ -213,7 +213,7 @@ dvc repro
 streamlit run dashboard/app.py
 ```
 
-Opens at `http://localhost:8501` — four tabs: Overview, Player Profiles, Predict, Session Explorer.
+Opens at `http://localhost:8501` — five tabs: Overview, Player Profiles, Predict, Session Explorer, Live Session.
 
 ### 7. Or run the whole stack in Docker
 
