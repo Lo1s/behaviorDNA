@@ -495,6 +495,14 @@ with tab5:
                 session, cheat, inject_at_s if cheat else None
             )
 
+            # Normalise for this session's hardware (sens/DPI + polling rate)
+            # before pushing events — same as the offline/WS replay paths.
+            state.configure_for_session(
+                sensitivity=session.get("sensitivity"),
+                dpi=session.get("dpi"),
+                polling_rate=session.get("polling_rate"),
+            )
+
             events = session.get("events", [])
             updates: list[dict] = []
             t_history: list[float] = []

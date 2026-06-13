@@ -160,6 +160,54 @@ class TestStateMachine:
 
 
 # ---------------------------------------------------------------------------
+# Per-session hardware normalisation
+# ---------------------------------------------------------------------------
+
+
+class TestConfigureForSession:
+    def test_sets_norm_factor_and_rate_norm(self):
+        state = _stream_state()
+        assert state.norm_factor == 1.0 and state.rate_norm == 1.0
+        state.configure_for_session(sensitivity=25.0, dpi=800, polling_rate=500)
+        assert state.norm_factor == pytest.approx(25.0)  # 25*800/800
+        assert state.rate_norm == pytest.approx(2.0)  # 1000/500
+
+    def test_missing_fields_leave_current_value(self):
+        state = _stream_state()
+        state.configure_for_session(sensitivity=2.0, dpi=1600)  # no polling_rate
+        assert state.norm_factor == pytest.approx(4.0)  # 2*1600/800
+        assert state.rate_norm == 1.0  # untouched
+
+
+# ---------------------------------------------------------------------------
+# finalize() partial-buffer policy
+# ---------------------------------------------------------------------------
+
+
+class TestFinalizePartialBuffers:
+    def test_finalize_flushes_trailing_partial_window(self):
+        # 63 events inside the first 30s window, chunk_length 64: nothing flushes
+        # during push (no boundary crossed, chunk incomplete). finalize() must
+        # score the trailing partial window; the partial chunk is discarded.
+        state = _stream_state(chunk_length=64)
+        for i in range(63):
+            assert state.push_event(_event(i * 100.0)) is None
+        final = state.finalize()
+        assert final is not None
+        assert final.n_windows == 1  # partial window now scored
+        assert final.n_chunks == 0  # partial chunk discarded (LSTM needs full chunk)
+        assert "IsolationForest" in final.per_detector
+
+    def test_finalize_is_idempotent(self):
+        state = _stream_state(chunk_length=64)
+        for i in range(63):
+            state.push_event(_event(i * 100.0))
+        first = state.finalize()
+        second = state.finalize()
+        assert first.n_windows == second.n_windows == 1  # no double-count
+
+
+# ---------------------------------------------------------------------------
 # Determinism: same events in → same final scores
 # ---------------------------------------------------------------------------
 
@@ -258,6 +306,47 @@ class TestWebSocketEndpoint:
             # At least one update should have fired
             assert len(messages) >= 1
             assert all("session_risk" in m for m in messages)
+
+    def test_session_metadata_message_is_accepted_and_not_an_event(self):
+        client = _ws_test_app()
+        with client.websocket_connect("/stream") as ws:
+            # __session__ first message must configure, not be scored as an event
+            ws.send_text(
+                json.dumps(
+                    {
+                        "type": "__session__",
+                        "sensitivity": 25.0,
+                        "dpi": 800,
+                        "polling_rate": 500,
+                    }
+                )
+            )
+            for sec in range(0, 61):
+                ws.send_text(
+                    json.dumps(
+                        {
+                            "t": sec * 1000.0,
+                            "type": "mouse_move",
+                            "x": 1,
+                            "y": 1,
+                            "dx": 1,
+                            "dy": 1,
+                        }
+                    )
+                )
+            ws.send_text(json.dumps({"type": "__end__"}))
+            messages: list[dict] = []
+            while True:
+                try:
+                    msg = ws.receive_json()
+                except Exception:
+                    break
+                messages.append(msg)
+                if msg.get("triggered_by") == "finalize":
+                    break
+            assert len(messages) >= 1
+            # 61 events pushed; the __session__ message is NOT counted as one
+            assert messages[-1]["n_events"] == 61
 
     def test_invalid_json_returns_error_then_continues(self):
         client = _ws_test_app()

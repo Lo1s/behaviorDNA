@@ -248,6 +248,7 @@ class SessionStreamState:
             name: -np.inf for name in classical_detectors
         }
         self._last_update: Optional[ScoreUpdate] = None
+        self._finalized = False
 
     # -------------------------------------------------------------------
     # Per-session configuration
@@ -315,7 +316,17 @@ class SessionStreamState:
         return self._build_update(t, triggered[-1])
 
     def finalize(self, final_t: Optional[float] = None) -> Optional[ScoreUpdate]:
-        """Force a score update at the end of a session (e.g. on WS disconnect)."""
+        """Force a score update at the end of a session (e.g. on WS disconnect).
+
+        Flushes the trailing **partial window** — the events since the last 30s
+        boundary — so the final sub-30s of play is scored, mirroring the offline
+        pipeline (which scores the final short window by its actual duration).
+
+        The trailing **partial chunk** is intentionally *not* scored: the LSTM-AE
+        requires exactly ``chunk_length`` events, and padding/masking a short
+        chunk would feed it an input distribution it never saw in training, so
+        those leftover events are dropped. Idempotent — safe to call repeatedly.
+        """
         if not self.events:
             return None
         t = (
@@ -323,7 +334,13 @@ class SessionStreamState:
             if final_t is not None
             else float(self.events[-1].get("t", 0.0))
         )
-        # No new buffers to flush — just emit the latest aggregate snapshot.
+        # Flush the trailing partial window (no-op if it has <2 events or was
+        # already flushed). The partial chunk is deliberately discarded above.
+        if self.next_window_end_t is not None and not self._finalized:
+            self._flush_window(
+                self.next_window_end_t - WINDOW_MS, self.next_window_end_t
+            )
+            self._finalized = True
         return self._build_update(t, triggered_by="finalize")
 
     # -------------------------------------------------------------------

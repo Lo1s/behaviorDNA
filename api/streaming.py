@@ -6,6 +6,11 @@ WebSocket endpoint that streams per-event scores from a live session.
 Client protocol (JSON over WebSocket):
 
   Client → server:
+    {"type": "__session__", "sensitivity": 0.35, "dpi": 800, "polling_rate": 1000}
+                            ← recommended FIRST message: per-session hardware
+                              normalisation. Without it, non-default hardware
+                              (sens≠1, dpi≠800, rate≠1000 Hz) is mis-scaled and
+                              every window/chunk looks anomalous.
     {"t": 12345.6, "type": "mouse_move", "x": 100, "y": 200, "dx": 1, "dy": 0}
     {"t": 12350.0, "type": "mouse_click", "x": 100, "y": 200, "pressed": true}
     ...
@@ -92,7 +97,21 @@ async def stream(websocket: WebSocket) -> None:
                 await websocket.send_json({"error": "invalid JSON"})
                 continue
 
-            if payload.get("type") == "__end__":
+            msg_type = payload.get("type")
+
+            if msg_type == "__session__":
+                # Per-session hardware normalisation — see the module docstring.
+                # Recommended as the first message; without it, non-default
+                # hardware (sens≠1, dpi≠800, rate≠1000 Hz) is mis-scaled and
+                # every window/chunk looks anomalous.
+                state.configure_for_session(
+                    sensitivity=payload.get("sensitivity"),
+                    dpi=payload.get("dpi"),
+                    polling_rate=payload.get("polling_rate"),
+                )
+                continue
+
+            if msg_type == "__end__":
                 # Client signalled end of stream — emit a final snapshot
                 final = state.finalize()
                 if final is not None:

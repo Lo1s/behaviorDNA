@@ -202,6 +202,18 @@ async def replay_websocket(
             events = session.get("events", [])
             if not events:
                 return updates
+            # Send hardware metadata first so the server normalises this session
+            # the same way the detectors were trained (matches replay_offline).
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "__session__",
+                        "sensitivity": session.get("sensitivity"),
+                        "dpi": session.get("dpi"),
+                        "polling_rate": session.get("polling_rate"),
+                    }
+                )
+            )
             t0 = float(events[0].get("t", 0.0))
             wall_start = asyncio.get_event_loop().time()
             recv_task = asyncio.create_task(_receive_loop(ws, out_f, updates))
