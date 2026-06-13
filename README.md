@@ -43,7 +43,7 @@
 | Setting | Result |
 |---|---|
 | 3 players (real GTA) | **0.85** acc (95% CI 0.74–0.97) · 0.86 F1 (95% CI 0.75–0.97) |
-| same-hardware pair *(no hardware confound)* | **0.75** acc (0.65 baseline) — the honest biometric ([notebook 12](notebooks/12_explainability.ipynb)) |
+| same-hardware pair *(no hardware confound)* | **0.75** acc (0.65 baseline, 95% CI 0.55–0.90; 20 test windows) — the honest biometric ([notebook 12](notebooks/12_explainability.ipynb)) |
 | **Public corpus, 10 users (Balabit)** — *mouse-only, same pipeline* | **0.59** acc (95% CI 0.57–0.62, chance 0.10) · impostor-detection **EER 0.144** (784 labelled sessions) |
 | **Public corpus, 120 users (SapiMouse)** — *scale stress-test* | 0.11 acc (chance 0.008 — 13× chance) from ~6 train windows/user; open-set ≈ chance → data-starved, the Phase-8 pretraining motivation |
 

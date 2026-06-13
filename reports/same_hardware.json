@@ -1,0 +1,25 @@
+{
+  "experiment": "same_hardware_identification",
+  "description": "hydra vs dninix on identical hardware (same PC + in-game settings) \u2014 pure behavioural identity, no DPI/polling/OS confound.",
+  "pair": [
+    "dninix",
+    "hydra"
+  ],
+  "model": "lightgbm",
+  "feature_set": "ID_FEATURE_COLS (25 features)",
+  "split": "player-stratified session-level holdout (pipeline/features/split.py)",
+  "accuracy": 0.75,
+  "majority_baseline": 0.65,
+  "accuracy_ci95": [
+    0.55,
+    0.9
+  ],
+  "ci_method": "window bootstrap; windows within a session are correlated, so this interval is optimistic (same caveat as the main eval).",
+  "n_train_windows": 132,
+  "n_val_windows": 28,
+  "n_test_windows": 20,
+  "n_test_sessions": 2,
+  "source_notebook": "notebooks/12_explainability.ipynb (Part 3)",
+  "features_md5": "5418397aa8630e48e0edabf65e3aa3ec",
+  "git_sha": "3f19d92fe9e9c23d68c0e2b4f405e5ce3dc57111"
+}
