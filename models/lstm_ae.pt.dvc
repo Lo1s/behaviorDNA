@@ -1,0 +1,5 @@
+outs:
+- md5: 42fa0bfc20a59238c18a7c527f763671
+  size: 789269
+  hash: md5
+  path: lstm_ae.pt

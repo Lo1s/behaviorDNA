@@ -179,7 +179,7 @@ The benchmark is unsupervised. In production:
 | `pipeline/adversarial/bot_generator.py` | Aimbot / Triggerbot / Macro generators + derived metrics |
 | `pipeline/adversarial/generate_dataset.py` | Builds the labelled dataset from `data/raw/` into `data/synthetic/` |
 | `pipeline/adversarial/benchmark.py` | Runs detectors against synthetic data, writes `reports/adversarial/benchmark_results.csv` |
-| `data/synthetic/` | Generated hybrid sessions (drop-in compatible with ingestion) |
+| `data/synthetic/` | Generated hybrid sessions — gitignored, regenerated deterministically (not stored) |
 | `notebooks/10_adversarial_bots.ipynb` | Step-by-step tutorial with all visualizations |
 | `reports/figures/adversarial_*.png` | Saved figures used in the notebook |
 | `reports/adversarial/benchmark_results.csv` | Latest benchmark output |
@@ -188,16 +188,27 @@ The benchmark is unsupervised. In production:
 
 ## Reproducing
 
+The synthetic dataset is **not stored in the repo** — it is ~520 MB of *derived*
+data, regenerated deterministically (`bot_generator` seeds `random.Random(42)`)
+from the versioned legit recordings. The LSTM-AE weights are GPU-trained (not
+bit-reproducible), so they **are** versioned in DVC and pulled. A reviewer can
+run all of the below from a fresh clone — no GPU or author workstation required
+(step 0 needs read access to the DagsHub DVC remote).
+
 ```bash
 source .venv/bin/activate
 
-# 1. Generate the synthetic dataset (15 legit recordings → 90 hybrid sessions)
+# 0. Pull the versioned artifacts: legit recordings (data/raw) + LSTM-AE model
+dvc pull
+
+# 1. Regenerate the labelled synthetic set (18 legit recordings → 108 hybrid
+#    sessions); deterministic (~520 MB), written to data/synthetic/
 python -m pipeline.adversarial.generate_dataset
 
-# 2. Run the benchmark
+# 2. Reproduce the headline detection AUCs (aimbot ~0.79, triggerbot ~0.93)
 python -m pipeline.adversarial.benchmark
 
-# 3. Re-execute the notebook end-to-end
+# 3. (optional) Re-execute the full tutorial notebook end-to-end
 jupyter nbconvert --to notebook --execute --inplace \
   notebooks/10_adversarial_bots.ipynb
 ```
