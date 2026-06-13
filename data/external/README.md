@@ -5,6 +5,9 @@ External datasets are **not** in git (only this README and `.gitkeep`s are; see
 in `pipeline/external/` (Phase 6) and the notebooks can find them. Once a corpus
 is in use, `dvc add` its directory so it's versioned like the rest of the data.
 
+**Per-corpus audits** (what each supports, its limits, schema mapping, leakage,
+domain shift): [docs/DATASET_CARDS.md](../../docs/DATASET_CARDS.md).
+
 | Directory | Dataset | Used by | Where to get it |
 |---|---|---|---|
 | `balabit/` | **Balabit Mouse Dynamics Challenge** — 10 users, per-user session CSVs (`record timestamp, client timestamp, button, state, x, y`), plus test-set impostor labels (`is_illegal`) | Phase 6 — `pipeline/external/balabit.py`, notebook 19 (literature-comparable EER) | github.com/balabit/Mouse-Dynamics-Challenge (archived repo; clone/download the `training_files` + `test_files` trees here) |
