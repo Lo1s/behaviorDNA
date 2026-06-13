@@ -1,6 +1,6 @@
 # Dataset Cards — public corpora
 
-Short, honest audits of the three public corpora this project uses, so a reader
+Short, honest audits of the four public corpora this project uses, so a reader
 can judge *what each one supports and what it can't*. Raw corpus files are not in
 git (size + licence — see [`data/external/README.md`](../data/external/README.md));
 these cards describe what the adapters/notebooks actually consume.
@@ -66,8 +66,20 @@ redistributing anything derived from them.
 
 ---
 
-> A fourth corpus, **CaptchaSolve30k** (~20k human mouse sessions), is staged for
-> Phase 8 self-supervised pretraining and used exploratorily in notebook 05; a
-> card will be added when it moves into a measured experiment.
+## CaptchaSolve30k (self-supervised pretraining corpus)
+
+| | |
+|---|---|
+| **Source / retrieval** | Public captcha-solving mouse dataset (retrieval per notebook 05). Stored as `data/external/captcha30k/captcha30k.parquet` (~326 MB, git-ignored, re-downloadable). |
+| **Unit of observation** | One **physics tick** of a captcha-solving session: `{x, y, isDown, sampleIndex}` sampled at a fixed ~4.2 ms rate. One row per session holds the full `tickInputs` array (mean ~2.5k ticks/session). |
+| **Counts** | **20,000 sessions** (≈**17.7k mouse**, non-touchscreen; 2.3k touchscreen). 3 mini-game types (thread-the-needle / polygon-stacking / sheep-herding). **Unlabelled** for our purposes (no player or cheat labels) — used purely as a self-supervised corpus. |
+| **Schema mapping → BehaviorDNA** | The per-tick sampled stream is re-encoded into the shared **8-D event tensor** ([`pipeline/pretraining/corpora.py`](../pipeline/pretraining/corpora.py)): `dx/dy` deltas, `is_mouse_move=1`, click on `isDown` rising edge, `dt=log1p(~4.2 ms)`, scroll/keyboard = 0. The big nested column is streamed via `pyarrow.iter_batches` (whole-file materialisation OOMs). |
+| **Data quality** | Clean; the first ticks of a session sit at the origin before motion starts. ~70 % of sessions hold the button down (drag-to-target), so click **rising edges** are sparse. |
+| **Domain shift vs local data** | **Quantified (Phase 8).** Movement geometry transfers well to CS2 (`dx/dy` PSI < 0.1) but poorly to GTA (`dx` PSI 0.37); the **temporal channel `dt` is PSI ≈ 10–12 mismatched** vs *both* games (fixed-tick captcha vs CS2's ~15.6 ms tick / GTA's event-driven stream). See [PRETRAINING.md](PRETRAINING.md). |
+| **Suitable for** | A large **unlabelled human-mouse pretraining corpus** (masked-denoising of the sequence encoder). |
+| **Not suitable for** | Player identification or cheat detection directly (no labels); as a *transfer* foundation for game-input biometrics it **did not help** at this scale (the Phase 8 null). |
+| **Used by** | Phase 8 — `scripts/pretrain_encoder.py`, notebook 21; the human-motion-manifold pretraining + domain-gap experiment. |
+
+---
 
 See also: [VERIFICATION.md](VERIFICATION.md) · [SIGNALS.md](SIGNALS.md) · [FINDINGS.md](FINDINGS.md) · [`data/external/README.md`](../data/external/README.md)

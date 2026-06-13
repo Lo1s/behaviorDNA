@@ -97,6 +97,27 @@ benchmark gates on MAE < 1e-6. sklearn remains the reference path
 (p50 1.40 ms, ~89k windows/s — real-time).
 → `pipeline/onnx_export.py`, `scripts/benchmark_inference.py`
 
+### 8. Pretraining didn't transfer — and we can point to exactly why (Phase 8)
+
+The "data is the bottleneck" thesis suggested an obvious lever: pretrain the sequence
+encoder self-supervised on a large unlabelled human-mouse corpus (CaptchaSolve30k,
+≈17.7k sessions), then fine-tune. We masked-denoising-pretrained the LSTM-AE and ran a
+**data-efficiency curve** — pretrained-init vs from-scratch chunk-AUC vs fine-tuning
+budget — on **both** CS2CD (real cheats) and GTA. **Verdict: a rigorous null.**
+Pretrained ≈ scratch at every budget (CS2CD Δ ≈ 0.000; GTA Δ = −0.001…−0.005, within
+±std over 5 seeds).
+
+The value is that we **measured the domain gap first** (the project's own KS/PSI drift
+tooling, reference = captcha) and it predicts the null mechanistically: the temporal
+channel `dt` is **PSI ≈ 10–12** mismatched against *both* games (fixed-tick captcha vs
+event-driven game streams), and GTA's mouse-delta geometry differs (`dx` PSI 0.37) —
+while captcha→CS2 movement geometry actually transfers well (`dx/dy` PSI < 0.1). So a
+**generic human-mouse corpus is not a drop-in foundation for game-input biometrics** —
+the data-not-capacity thesis confirmed from the other side: *out-of-domain* data doesn't
+substitute for in-domain data. Honest negative result, with the next levers named
+(matched temporal encoding / in-domain corpus / contrastive objective).
+→ `docs/PRETRAINING.md`, `notebooks/21_pretraining.ipynb`, `pipeline/pretraining/`
+
 ---
 
 **What this set of findings is meant to show:** the engineering is end-to-end

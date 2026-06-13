@@ -56,8 +56,15 @@ GTA effect is neutral-to-slightly-better (0.600 → 0.625 acc) and within small-
    frame-time anomalies. Non-behavioural, central to real cheat detection, needs a dedicated agent.
 4. **Per-tick network telemetry** (lag-switch detection) — within-session ping/jitter, not the
    session-mean confound.
-5. **Pretraining corpus:** [CaptchaSolve30k](../notebooks/05_external_datasets.ipynb) (20k human mouse
-   sessions, already cached) to pretrain the AE's human-motion manifold, then transfer to GTA.
+5. ~~**Pretraining corpus:** [CaptchaSolve30k](../notebooks/05_external_datasets.ipynb) (20k human mouse
+   sessions, already cached) to pretrain the AE's human-motion manifold, then transfer to GTA.~~
+   ✅ **done (Phase 8, 2026-06-13) — null result.** Masked-denoising-pretrained the LSTM-AE on
+   CaptchaSolve30k, then ran a pretrained-vs-scratch data-efficiency curve on CS2CD + GTA: **no transfer
+   benefit** (Δ within ±std). The measured domain gap explains it — the temporal channel `dt` is
+   PSI ≈ 10–12 mismatched (sampled fixed-tick captcha vs event-driven GTA), and GTA mouse-delta
+   geometry differs (`dx` PSI 0.37). A generic human-mouse corpus is **not** a drop-in foundation for
+   game-input biometrics; next levers are a matched temporal encoding or an in-domain pretraining
+   corpus. See [docs/PRETRAINING.md](PRETRAINING.md).
 
 ## Architectural finding — decouple identification from cheat detection ✅ implemented
 

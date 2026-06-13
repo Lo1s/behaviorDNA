@@ -69,9 +69,27 @@ embedding-based verification over classifier confidence.
 notebooks/20, ADVERSARIAL.md arms-race section. -->
 
 ## 8. Self-supervised pretraining & data efficiency *(Phase 8)*
-<!-- Masked-step pretraining on CaptchaSolve30k; domain-gap measurement; the
-data-efficiency curve (pretrained vs scratch). The "data is the bottleneck"
-thesis tested directly. Source: notebooks/21, PRETRAINING.md. -->
+<!-- Source: notebooks/21, PRETRAINING.md, reports/{pretraining_domain_gap,data_efficiency_*}.json -->
+
+We tested the "data is the bottleneck" thesis directly: masked-denoising-pretrain the LSTM-AE on
+CaptchaSolve30k (≈17.7k unlabelled human-mouse sessions), transfer the full weights, and measure the
+**data-efficiency curve** — pretrained-init vs from-scratch chunk-AUC as a function of fine-tuning
+budget — on both CS2CD (real cheats, 10 players) and GTA (synthetic, N=18). The precondition for a
+fair test is a single 8-D event-tensor schema shared across all three corpora (the sampled per-tick
+captcha/CS2 streams re-encoded into the GTA event schema).
+
+**Result: a rigorous null.** Pretrained ≈ scratch at every budget (CS2CD Δ ≈ 0.000; GTA Δ =
+−0.001…−0.005, within ±std). A domain-gap report (the project's own KS/PSI drift tooling, reference =
+captcha) explains it mechanistically: the **temporal channel `dt` is PSI ≈ 10–12 mismatched** against
+*both* games (fixed-tick captcha vs CS2's ~15.6 ms tick and GTA's event-driven stream with idle gaps),
+and GTA's mouse-delta geometry differs (`dx` PSI 0.37) — while, tellingly, captcha→CS2 movement
+geometry transfers well (`dx/dy` PSI < 0.1). Two honesty caveats sharpen it: CS2CD is near-separable at
+random init (a magnitude artifact → a weak discriminator of the transfer question), and GTA
+fine-tuning *itself* helps while pretraining specifically does not. The publishable takeaway: **a
+generic human-mouse corpus is not a drop-in foundation for game-input cheat detection at this scale** —
+the next levers are a matched temporal encoding, an in-domain pretraining corpus, or a contrastive
+objective. This is the data-not-capacity thesis confirmed from the other direction: out-of-domain
+*data* didn't substitute for in-domain data.
 
 ## 9. Limitations & ethics
 <!-- 3 players / 1 cheat recorder; input-level only (no kernel/memory/network);

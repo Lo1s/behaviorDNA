@@ -41,7 +41,7 @@ ongoing iteration:
 | 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ✅ Done (5a–5e); MLOps in [docs/MLOPS.md](docs/MLOPS.md) |
 | 6. [Public-corpus identification + verification](#phase-6--public-corpus-identification--verification) | Run the pipeline at 10–120 users (Balabit/SapiMouse); reframe ID as verification/open-set (EER, smurf detection) | ✅ Done (2026-06-11) — Balabit EER 0.144 @ 10 users; REPORT.md §6 pending |
 | 7. [Detection-vs-evasion frontier](#phase-7--detection-vs-evasion-frontier) | Parameterised cheat "humanizer"; detector-AUC-vs-evasion curve + equilibrium | ⬜ Not started |
-| 8. [Self-supervised pretraining](#phase-8--self-supervised-pretraining) | Pretrain the sequence encoder on CaptchaSolve30k; data-efficiency curve | ⬜ Not started (GPU desktop) |
+| 8. [Self-supervised pretraining](#phase-8--self-supervised-pretraining) | Pretrain the sequence encoder on CaptchaSolve30k; data-efficiency curve | ✅ Done (2026-06-13) — **rigorous null**: no transfer benefit (CS2CD Δ≈0.000; GTA Δ≈−0.005, within ±std); the captcha→game domain gap dominates. [docs/PRETRAINING.md](PRETRAINING.md) |
 | 9. [Outcome-labelled telemetry](#phase-9--outcome-labelled-telemetry) | CS2 demo parsing → kills/damage/accuracy per window; supervised detection + aggregator re-attempt | ⬜ Not started (spike early) |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
@@ -67,7 +67,7 @@ Phases 1–5 closed the original portfolio scope (end-to-end pipeline, deep mode
 1. ~~**Phase 6 — public-corpus ID + verification (A + D merged).**~~ ✅ **done (2026-06-11)** — Balabit (10 users) closed-set 0.59 / impostor EER 0.144; SapiMouse (120 users) signal survives but data-starved + open-set rejection at chance. The honest two-sided scale answer ([docs/VERIFICATION.md](VERIFICATION.md), [nb 19](../notebooks/19_identification_at_scale_public.ipynb)). Only remaining bit: expand REPORT.md §6 from draft.
 2. **Phase 9 — outcome telemetry, *spike now / execute later*.** Data-collection lead time is the bottleneck, not code. Run the **one-evening feasibility spike** (can `demoparser2` pull view-angles + damage from your own CS2 demo, clock-synced to a simultaneous recorder run?) **during Phase 6**, then let dual-capture sessions accumulate in the background while you build 7.
 3. **Phase 7 — detection-vs-evasion frontier (C).** Most anti-cheat-native; CPU-friendly (scores through the existing LSTM-AE). `live_cheat.py` already has the easing/overshoot/jitter planners — a humanization strength knob λ parameterises what exists.
-4. **Phase 8 — self-supervised pretraining (B).** Highest research-credential ROI but **needs the GPU desktop** and is the heaviest lift. Attacks the *actual* limiting factor (data, per the architecture comparison) — "a small foundation model for human input motion." (The canonical LSTM-AE retrain that used to be folded in here is already [done](#tooling-backlog).)
+4. ~~**Phase 8 — self-supervised pretraining (B).**~~ ✅ **done (2026-06-13)** — masked-denoising pretraining of the LSTM-AE on CaptchaSolve30k (≈17.7k mouse sessions), then a pretrained-vs-scratch data-efficiency curve on **both** CS2CD (real cheats) and GTA. **Result is a rigorous null:** no transfer benefit at this scale, and the measured domain gap explains why (the `dt` channel — sampled fixed-tick captcha vs event-driven GTA — is PSI ≈ 10–12 mismatched). A publishable negative result: a generic human-mouse corpus is not a drop-in foundation for game-input biometrics. [docs/PRETRAINING.md](PRETRAINING.md), [nb 21](../notebooks/21_pretraining.ipynb).
 5. **Tech report (F) — grown, not written.** ✅ skeleton created ([docs/REPORT.md](REPORT.md)); §6 (Phase 6) drafted, §§1–5 source from existing evidence. "Its report section is drafted" is part of each phase's definition of done. Post to arXiv after Phase 8; the blog post is a condensation. The structure falls out of [docs/FINDINGS.md](FINDINGS.md).
 
 > Same contract as before: **a guide, not a promise** — revisit if implementing one phase changes what the next should be. The honest-positioning rule still holds: a null result (mouse-only ID drops; pretraining doesn't transfer; the domain gap dominates) is a publishable finding, not a failure.
@@ -375,11 +375,13 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 - The canonical LSTM-AE retrain that used to be staged for "the first desktop session" is already [done](#tooling-backlog) (2026-06-12).
 
 **Deliverables:**
-- [ ] `pipeline/pretraining/` — masked-step objective + dataloader
-- [ ] `scripts/pretrain_encoder.py` (CUDA) — persists encoder weights + meta
-- [ ] domain-gap report (captcha vs GTA vs CS2CD) via drift tooling
-- [ ] `notebooks/21_pretraining.ipynb` — data-efficiency curve, pretrained vs scratch
-- [ ] `docs/PRETRAINING.md` — objective, corpus, transfer result (honest either way)
+- [x] `pipeline/pretraining/` — masked-denoising objective + masking dataset + corpus→8-D adapters (`corpora.py`, `masking.py`, `pretrain.py`); `tests/test_pretraining.py` (13 tests)
+- [x] `scripts/pretrain_encoder.py` (CUDA) — persists `models/pretrained_encoder.pt` (+ `_meta.json`); DVC-tracked
+- [x] domain-gap report (captcha vs CS2CD vs GTA) via the existing KS/PSI drift tooling — `scripts/domain_gap_report.py` → `reports/pretraining_domain_gap.json`
+- [x] `scripts/data_efficiency.py --domain {cs2cd,gta}` + `notebooks/21_pretraining.ipynb` — data-efficiency curves, pretrained vs scratch (5 seeds)
+- [x] `docs/PRETRAINING.md` — objective, shared-8-D-schema decision, domain gap, the honest null
+
+**Key results (2026-06-13):** pretrained-init vs from-scratch chunk-AUC is **statistically indistinguishable** — CS2CD Δ ≈ 0.000 at every budget (and the task is near-separable at random init, AUC ≈ 0.70); GTA Δ = −0.001…−0.005, within ±std. The captcha→game domain gap (PSI: `dt` ≈ 10–12 both targets; GTA `dx` ≈ 0.37) dominates. **A generic human-mouse corpus does not transfer as a foundation for game-input cheat detection at this scale** — honest negative result; next levers are a matched temporal encoding, an in-domain pretraining corpus, or a contrastive objective.
 
 ---
 

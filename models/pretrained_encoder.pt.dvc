@@ -1,0 +1,5 @@
+outs:
+- md5: d60fbb3c4c8d3d0ad2f2be1150ec879f
+  size: 789269
+  hash: md5
+  path: pretrained_encoder.pt
