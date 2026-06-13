@@ -40,6 +40,12 @@ jobs:
         # fail the build if someone changed metrics without regenerating it.
         run: python -m scripts.generate_results --check
 
+      - name: Repo metadata facts are in sync with the tree
+        # Test count / dashboard tabs / notebook + doc counts are generated from
+        # the git-tracked tree by scripts/generate_metadata.py — fail the build
+        # if a doc number drifted (the README "340+" / CLAUDE "~372" problem).
+        run: python -m scripts.generate_metadata --check
+
   dvc-repro:
     runs-on: ubuntu-latest
     needs: lint-and-test

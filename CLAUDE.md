@@ -19,7 +19,7 @@ dvc repro
 dvc repro features
 
 # Tests
-pytest -q                                 # full suite (~372 tests)
+pytest -q                                 # full suite (418 tests)
 pytest tests/test_features.py::test_x     # single test
 pytest -q --no-header -k adversarial      # by keyword
 
@@ -101,7 +101,7 @@ data/splits/
 
 - **Git commits**: do not include a `Co-Authored-By` trailer (user preference).
 - **Push to BOTH remotes**: `git push origin main && git push dagshub main` (DagsHub renders the public README). For DVC-tracked data/model changes, `dvc push` to the DagsHub remote too.
-- **README results are self-updating**: headline numbers come from `scripts/generate_results.py` (CI-gates `--check`). Don't hand-edit the results block / metrics — regenerate instead.
+- **README results are self-updating**: headline numbers come from `scripts/generate_results.py` (CI-gates `--check`). Don't hand-edit the results block / metrics — regenerate instead. Likewise the *structural* facts (test count, dashboard tab count, notebook/doc counts) are owned by `scripts/generate_metadata.py` → `reports/repo_metadata.json` (also CI-gated `--check`); don't hand-edit those numbers in README/CLAUDE — run `python -m scripts.generate_metadata` and re-stage.
 - **Keep this file current (after every milestone).** When a milestone lands — a roadmap phase, a structural refactor (new pipeline stage / model, data-layout or feature-set change), or anything that changes the design choices / commands / "where to look" above — update the affected lines here **in the same commit**, and sync the status in `docs/ROADMAP.md`. CLAUDE.md is loaded into context every session, so stale guidance actively misleads (e.g. a wrong `split.py` description sends the next agent down the wrong path).
 - **Plan mode**: substantial features (anything touching multiple modules) should be planned via the existing roadmap in `docs/ROADMAP.md`. Each completed phase updates its checklist and status.
 - **Tutorial-style notebooks**: notebooks 09, 10, 16, 17, 18, 19, 20 (and 11–15) are intentionally written as step-by-step tutorials — the user uses them as study material, so verbosity is a feature not a bug. Notebooks 16/17 are GPU-live (seeded; absolute AUCs may wobble ~±0.01 run-to-run, ranking is stable). Notebooks 18 (CS2CD signal importance), 19 (public-corpus ID, Phase 6), 20 (Phase 7 evasion frontier — loads `scripts/evasion_frontier.py`'s output), and 21 (Phase 8 pretraining — loads the GPU scripts' outputs) are CPU-fast.
