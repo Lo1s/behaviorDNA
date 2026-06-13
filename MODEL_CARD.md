@@ -87,7 +87,8 @@ test (`pipeline/onnx_export.py`, `tests/test_onnx_export.py`, [FINDINGS #7](docs
 - **Sensing-layer blind spot:** this is **input-based** detection. A
   *memory-only* aimbot that never moves the OS cursor is invisible to it — which
   is why production anti-cheat also does memory/integrity scanning. Input
-  biometrics is one layer, not the whole stack.
+  biometrics is one layer, not the whole stack. Full observable-vs-evasion map:
+  [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 - **Synthetic cheats:** the headline detection metrics use synthetic cheat
   injection on real legit play. Three real continuous-cheat recordings
   (F8/F9/F10-labelled) now exist; the per-type real-cheat benchmark on them is

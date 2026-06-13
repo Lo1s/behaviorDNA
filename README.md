@@ -63,7 +63,7 @@ LSTM-AE vs TCN-AE vs Transformer-AE are **statistically tied in every setting** 
 
 <!-- RESULTS:END -->
 
-🧭 **Start here:** **[Findings](docs/FINDINGS.md)** (the honest results in one page) → **[Model Card](MODEL_CARD.md)** (intended use, limits, ban-cost) → `notebooks/12_explainability.ipynb` (SHAP + per-channel attribution) → `notebooks/16_architecture_comparison.ipynb` (GPU-live LSTM/TCN/Transformer deep-dive + "is it the split or a real ceiling?" experiments) → `notebooks/17_identification_at_scale.ipynb` (10-player ID on CS2 + "does identity survive cheating?") → `notebooks/18_signal_importance_cs2.ipynb` (what signals to monitor — behavioural + non-behavioural — and which earn promotion) → `docs/ARCHITECTURE_COMPARISON.md` · `docs/SIGNALS.md`. *Numbers are directional at this data scale (one cheat recorder, 3 players), not production guarantees.*
+🧭 **Start here:** **[Findings](docs/FINDINGS.md)** (the honest results in one page) → **[Model Card](MODEL_CARD.md)** (intended use, limits, ban-cost) → **[Threat Model](docs/THREAT_MODEL.md)** (what input biometrics can/can't see, and how each signal is evaded) → `notebooks/12_explainability.ipynb` (SHAP + per-channel attribution) → `notebooks/16_architecture_comparison.ipynb` (GPU-live LSTM/TCN/Transformer deep-dive + "is it the split or a real ceiling?" experiments) → `notebooks/17_identification_at_scale.ipynb` (10-player ID on CS2 + "does identity survive cheating?") → `notebooks/18_signal_importance_cs2.ipynb` (what signals to monitor — behavioural + non-behavioural — and which earn promotion) → `docs/ARCHITECTURE_COMPARISON.md` · `docs/SIGNALS.md`. *Numbers are directional at this data scale (one cheat recorder, 3 players), not production guarantees.*
 
 ---
 

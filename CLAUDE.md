@@ -110,7 +110,7 @@ data/splits/
 - [docs/FINDINGS.md](docs/FINDINGS.md) — the honest results in one page (small-N rigor, ONNX bug, etc.)
 - [docs/SIGNALS.md](docs/SIGNALS.md) — signal/feature research + ID-vs-cheat feature-set decoupling + data-collection roadmap
 - [docs/DATA_LAYOUT.md](docs/DATA_LAYOUT.md) — `data/raw/` legit/cheat layout + which consumer reads what
-- [docs/ARCHITECTURE_COMPARISON.md](docs/ARCHITECTURE_COMPARISON.md) · [docs/VERIFICATION.md](docs/VERIFICATION.md) · [docs/STREAMING.md](docs/STREAMING.md) · [docs/MLOPS.md](docs/MLOPS.md) · [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) · [docs/ETHICS.md](docs/ETHICS.md)
+- [docs/ARCHITECTURE_COMPARISON.md](docs/ARCHITECTURE_COMPARISON.md) · [docs/VERIFICATION.md](docs/VERIFICATION.md) · [docs/STREAMING.md](docs/STREAMING.md) · [docs/MLOPS.md](docs/MLOPS.md) · [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md) · [docs/ETHICS.md](docs/ETHICS.md) · [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
 - [docs/REPORT.md](docs/REPORT.md) — grow-as-you-go arXiv-style tech report (skeleton; §6 drafted)
 - `configs/training.yaml` — model + data-split configuration (the main knob users tune)
 - `notebooks/01_*`–`07_*` foundational analysis · `10` adversarial bots · `12` explainability · `16` architecture deep-dive · `17` ID at scale (CS2) · `18` signal importance · `19` public-corpus ID/verification
