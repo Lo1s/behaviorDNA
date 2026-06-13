@@ -83,27 +83,36 @@ Designed as a portfolio project demonstrating end-to-end MLOps — from data col
 
 ## Architecture
 
+Offline trains and versions the model artifacts; online serves them — the two
+halves meet only at the recorder's session JSON (input) and `models/` (handoff).
+
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   Windows (Gaming Host)                  │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │  collector/  — lightweight input listener        │    │
-│  │  outputs session JSON → data/raw/               │    │
-│  └─────────────────────────────────────────────────┘    │
-└──────────────────────────┬──────────────────────────────┘
-                           │ sync / copy
-┌──────────────────────────▼──────────────────────────────┐
-│                   WSL / Linux (Dev)                      │
-│                                                          │
-│  pipeline/ingestion/   raw JSON → Parquet               │
-│  pipeline/features/    feature engineering               │
-│  pipeline/training/    model training (LightGBM, AE)    │
-│  pipeline/evaluation/  metrics, reports                  │
-│                                                          │
-│  models/               saved model artifacts             │
-│  api/                  FastAPI inference endpoint        │
-│  dashboard/            MLflow / visualization            │
-└─────────────────────────────────────────────────────────┘
+   Windows host:  collector/  ──►  data/raw/   (session JSON, DVC-tracked:
+                                                legit  +  cheat/)
+                                       │
+   ═══════════════ OFFLINE — DVC pipeline + MLflow ════════════════
+                                       │
+     ingestion ─► features ─► split ─► training ─► evaluation
+                      │                LightGBM-id /     bootstrap CIs
+                      ▼                IsolationForest,
+                 sequences ─► models/  + ONNX export
+                              LSTM-AE  (PyTorch)
+
+     side-channels:  adversarial (synthetic cheats + benchmark) ·
+                     external/ (public corpora) · calibration (isotonic) ·
+                     monitoring/ (KS + PSI drift)
+                                       │
+                                       ▼
+                  models/   ( .pkl · .onnx · .pt )     ◄── artifact handoff
+                                       │
+   ═══════════════ ONLINE — docker/ serving stack ═════════════════
+                                       │
+          ┌────────────────────────────┼────────────────────────────┐
+          ▼                            ▼                            ▼
+     api/main.py               api/streaming.py             dashboard/
+     batch /predict/*          /stream WebSocket            Streamlit · 5 tabs
+     (player · anomaly)        (inference engine +          (incl. live replay)
+                                risk aggregator)
 ```
 
 ---
@@ -119,7 +128,9 @@ Designed as a portfolio project demonstrating end-to-end MLOps — from data col
 | ML models | LightGBM, Scikit-learn (Isolation Forest), PyTorch (LSTM/AE) |
 | Pipeline orchestration | DVC pipelines + GitHub Actions |
 | Model export | ONNX |
-| Inference API | FastAPI |
+| Inference / serving | FastAPI (batch `/predict/*` + `/stream` WebSocket) · Docker |
+| Dashboard | Streamlit (5 tabs, incl. live session replay) |
+| Monitoring | Feature/data drift (KS + PSI) · isotonic calibration |
 | CI/CD | GitHub Actions |
 
 ---
@@ -128,23 +139,30 @@ Designed as a portfolio project demonstrating end-to-end MLOps — from data col
 
 ```
 behaviorDNA/
-├── collector/          # Windows-side input telemetry recorder
+├── collector/          # Windows input-telemetry recorder (session JSON)
 ├── pipeline/
-│   ├── ingestion/      # Raw JSON → structured Parquet
-│   ├── features/       # Feature extraction & engineering
-│   ├── training/       # Model training scripts
-│   └── evaluation/     # Metrics, reports, comparison
-├── models/             # Saved model artifacts (.pkl, .onnx)
-├── api/                # FastAPI inference service
-├── dashboard/          # Visualization & MLflow helpers
-├── configs/            # Hydra / YAML configuration
-├── scripts/            # Utility & setup scripts
-├── tests/              # Unit & integration tests
-├── docs/               # Architecture diagrams, notes
+│   ├── ingestion/      # Raw JSON → Parquet (sessions, events)
+│   ├── features/       # 30s-window features + player-stratified split
+│   ├── sequences/      # Raw event-tensor preprocessing (for the LSTM-AE)
+│   ├── models/         # PyTorch LSTM autoencoder
+│   ├── training/       # sklearn/LightGBM dispatch + ONNX export
+│   ├── evaluation/     # Metrics, bootstrap CIs, confusion matrix
+│   ├── adversarial/    # Synthetic-cheat injection + detection benchmark
+│   ├── inference/      # Streaming engine + Naive-Bayes risk aggregator
+│   ├── monitoring/     # Data/feature drift (KS + PSI)
+│   ├── external/       # Public-corpus loaders (Balabit, SapiMouse, CS2CD)
+│   └── calibration.py  # Isotonic probability calibration
+├── api/                # FastAPI: batch /predict/* + /stream WebSocket
+├── dashboard/          # Streamlit (5 tabs, incl. live session replay)
+├── docker/             # Dockerfile + compose for the serving stack
+├── notebooks/          # 01–19 analysis / tutorials
+├── models/ configs/ scripts/ tests/ reports/ docs/
 └── data/
-    ├── raw/            # Raw session JSON files (DVC-tracked)
+    ├── raw/            # Session JSON — legit + cheat/ (DVC-tracked)
     ├── processed/      # Parquet feature tables (DVC-tracked)
-    └── splits/         # Train/val/test splits (DVC-tracked)
+    ├── splits/         # Player-stratified train/val/test (DVC-tracked)
+    ├── external/       # Public datasets (DVC-tracked)
+    └── synthetic/      # Generated cheat sessions (DVC-tracked)
 ```
 
 ---
@@ -272,7 +290,7 @@ Legend: ✅ Done · 🚧 In progress · ⬜ Not started · 📝 Backlog
 - [x] **LSTM autoencoder on raw event sequences** — PyTorch sequence model, GPU-accelerated (RTX 3070), solves the aimbot detection gap at the chunk level (real-data AUC 0.79). 11-step tutorial in `notebooks/09_lstm_autoencoder.ipynb`; full architecture write-up in `docs/LSTM_AE.md`
 - [x] **Streaming inference + Bayesian session aggregation** — `/stream` WebSocket endpoint, `pipeline/inference/aggregator.py` (Naive-Bayes log-odds + isotonic calibration), `scripts/replay_session.py` with synthetic-cheat injection, "📡 Live Session" dashboard tab, reproducible PNG + GIF demo artifacts via `scripts/build_phase4_demo.py`. Full architecture in [docs/STREAMING.md](docs/STREAMING.md).
 - [x] **Calibration + SHAP + drift monitor + MLflow registry** — production polish (Phase 5; see [docs/MLOPS.md](docs/MLOPS.md))
-- [x] **Real-time dashboard** — four-tab Streamlit app in `dashboard/app.py`
+- [x] **Real-time dashboard** — five-tab Streamlit app in `dashboard/app.py`
 
 ---
 
