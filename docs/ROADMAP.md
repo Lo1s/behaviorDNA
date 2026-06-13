@@ -13,6 +13,21 @@ This roadmap adds the four things hiring managers at AI-focused anti-cheat compa
 
 ---
 
+## Recruiter-handover checklist (do last)
+
+One-off actions to run at the **very end** of portfolio work, immediately before
+sharing the repo with recruiters — not earlier, so they don't interfere with
+ongoing iteration:
+
+- [ ] **Enable public/anonymous DVC read on DagsHub** (repo Settings → make the
+      DVC storage public) so a recruiter can `dvc pull` the versioned artifacts
+      (LSTM-AE model, recordings) and reproduce the headline result **without a
+      DagsHub account/token**. Anonymous pull is currently disabled → reproduction
+      needs a token (see [docs/ADVERSARIAL.md](ADVERSARIAL.md) → "Reproducing").
+      DagsHub-UI only; verified 2026-06-13 that token-free `dvc pull` fails.
+
+---
+
 ## Status at a glance
 
 | Phase | Goal | Status |
