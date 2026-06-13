@@ -518,6 +518,48 @@ class TestProcessSessionWindows:
         windows = process_session_windows(df, norm_factor=1.0)
         assert len(windows) == 3
 
+    def test_gap_window_does_not_truncate_session(self):
+        # Events in window 0 ([0,30s)) and window 2 ([60,90s)); window 1 is an
+        # empty AFK gap. The gap must NOT end the session — both populated
+        # windows are returned (regression: an empty window used to `break`,
+        # silently dropping every window after the first gap).
+        def _mm(t):
+            return {
+                "t": float(t),
+                "event_type": "mouse_move",
+                "x": 0,
+                "y": 0,
+                "dx": 1,
+                "dy": 0,
+                "pressed": None,
+                "key": None,
+            }
+
+        rows = [_mm(t) for t in (0, 500, 1000, 1500, 2000)]
+        rows += [_mm(t) for t in (65000, 65500, 66000, 66500, 67000)]
+        df = pd.DataFrame(rows)
+        windows = process_session_windows(df, norm_factor=1.0)
+        assert [w["window_idx"] for w in windows] == [0, 2]
+
+    def test_single_event_session_does_not_crash(self):
+        # A single event makes the final window zero-span (actual_ms == 0);
+        # it must be skipped, not divided by (regression: ZeroDivisionError).
+        one = pd.DataFrame(
+            [
+                {
+                    "t": 0.0,
+                    "event_type": "mouse_move",
+                    "x": 0,
+                    "y": 0,
+                    "dx": 1,
+                    "dy": 0,
+                    "pressed": None,
+                    "key": None,
+                }
+            ]
+        )
+        assert process_session_windows(one, norm_factor=1.0) == []
+
     def test_window_idx_starts_at_zero(self):
         mm = make_mm(n=10, t_start=0.0)
         windows = process_session_windows(mm, norm_factor=1.0)

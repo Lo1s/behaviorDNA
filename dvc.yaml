@@ -6,6 +6,7 @@ stages:
       - data/raw
     outs:
       - data/processed/sessions.parquet
+      - data/processed/events.parquet
 
   features:
     cmd: python -m pipeline.features.run

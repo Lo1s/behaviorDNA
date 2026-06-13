@@ -542,10 +542,20 @@ def process_session_windows(
         mask = (session_events["t"] >= w_start) & (session_events["t"] < w_end)
         window = session_events[mask]
 
+        # An empty 30s window (e.g. an AFK gap) must NOT end the session: skip
+        # it and advance to the next window. (A bare `break` here previously
+        # discarded every window after the first gap.)
         if window.empty:
-            break
+            window_idx += 1
+            continue
 
         actual_ms = min(float(WINDOW_MS), t_max - w_start)
+
+        # A zero-span window (single event landing exactly at t_max) has no
+        # duration to rate against — skip it rather than dividing by zero.
+        if actual_ms <= 0:
+            window_idx += 1
+            continue
 
         mm = window[window["event_type"] == "mouse_move"]
         mc = window[window["event_type"] == "mouse_click"]
