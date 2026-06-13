@@ -1,0 +1,18 @@
+# Project-level tool config. This repo is run from a virtualenv + requirements.txt
+# (not pip-installed), so there is no [build-system] / packaging table here on
+# purpose — this file exists only to centralise tool configuration.
+#
+# ruff is configured separately in ruff.toml (which takes precedence), so this
+# file does not affect linting.
+
+[tool.black]
+# Jupyter notebooks are intentionally NOT black-formatted: notebooks 09–19 are
+# step-by-step tutorials whose layout is deliberate study material (see
+# CLAUDE.md "Conventions"). ruff is the notebook lint gate instead.
+#
+# Excluding them here makes `black .` / `black --check .` behave identically
+# whether or not the optional `black[jupyter]` extra is installed: CI installs
+# plain black (which silently skips notebooks), whereas a local venv with
+# jupyter would otherwise pick the notebooks up and disagree with CI. force-
+# exclude also applies to paths passed explicitly (e.g. by pre-commit).
+force-exclude = '\.ipynb$'
