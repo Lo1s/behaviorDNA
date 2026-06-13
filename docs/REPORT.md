@@ -1,10 +1,9 @@
 # Input-level behavioural biometrics for cheat detection: what works at small N
 
-> **Status: FULL DRAFT (post-Phase-8).** This is the grow-as-you-go tech report
-> (deliverable **F** in [docs/ROADMAP.md](ROADMAP.md)). §§1–6, 8, 9, 10 + the
-> abstract and appendix are drafted from the per-topic docs; **§7 (evasion
-> frontier) is Phase 7 and not yet run — it is flagged as planned, not
-> reported.** The remaining action is the manual arXiv submission + a blog-post
+> **Status: FULL DRAFT (post-Phase-7).** This is the grow-as-you-go tech report
+> (deliverable **F** in [docs/ROADMAP.md](ROADMAP.md)). §§1–10 + the abstract and
+> appendix are drafted from the per-topic docs; **§7 (evasion frontier) is now run
+> and reported.** The remaining action is the manual arXiv submission + a blog-post
 > condensation. This report *condenses and frames* the evidence already in
 > [docs/FINDINGS.md](FINDINGS.md) and the per-topic docs; it does not re-derive.
 
@@ -175,22 +174,49 @@ embedding-based verification over classifier confidence.
 
 → [docs/VERIFICATION.md](VERIFICATION.md)
 
-## 7. The detection-vs-evasion frontier *(Phase 7 — planned, not yet run)*
+## 7. The detection-vs-evasion frontier *(Phase 7)*
+<!-- Source: pipeline/adversarial/humanizer.py, scripts/evasion_frontier.py, notebooks/20, ADVERSARIAL.md (arms-race), reports/evasion_frontier.json -->
 
-> **Not reported.** Phase 7 is not yet executed; this section states the *planned*
-> method only, and contains no results. It will be filled before any submission
-> that claims an evasion frontier.
+Generating a cheat is half the problem; the anti-cheat day job is the **arms race**.
+We parameterise each synthetic cheat with a **humanisation-strength knob λ ∈ [0, 1]**
+(`pipeline/adversarial/humanizer.py`): `λ=0` is the obvious bot, `λ=1` is humanised
+*toward the target player's own legit play* — eased/overshooting aimbot snaps with
+per-step jitter matched to the player's move-step scale, a reaction delay drawn from a
+human RT model (~220 ± 40 ms), and keystroke cadence jittered to the player's own CV.
+For each λ we measure **detection AUC(λ)** (the §4 chunk-level LSTM-AE on 18 real GTA
+sessions, 3 seeds) against a closed-form **utility(λ)** — the cheat's residual advantage
+over an unaided human (reaction-time / correction-speed edge; cadence consistency for
+the macro), monotone-decreasing to 0 (behaves like the player → no advantage).
 
-The most anti-cheat-native experiment: parameterise the synthetic cheats with a
-**humanizer strength knob λ ∈ [0,1]** (reaction-delay injection, minimum-jerk
-smoothing of aimbot snaps, kinematic noise matched to the target player's own
-legit windows — extending the easing/overshoot/jitter planners that already exist
-in `pipeline/adversarial/live_cheat.py`), then plot two curves against λ: **detector
-AUC(λ)** (the §4 chunk model) and **cheat utility(λ)** (residual reaction-time
-advantage). The headline would be the equilibrium region — *"humanized enough to
-evade ≈ no longer worth running."*
+**The frontier favours the defender — there is no λ that is both undetectable and worth
+running.** Chunk-level AUC across the sweep:
 
-→ [docs/ADVERSARIAL.md](ADVERSARIAL.md) (arms-race section, planned)
+| λ | aimbot | triggerbot | macro |
+|---|---|---|---|
+| 0.00 | 0.789 | 0.925 | 0.600 |
+| 0.50 | 0.788 | 0.819 | 0.460 |
+| 1.00 | 0.836 | 0.758 | 0.403 |
+
+- **Aimbot — humanising backfires.** Detection *rises* with λ (chunk 0.79 → 0.84; the
+  classical window detector 0.59 → 0.72) while utility → 0. Player-matched jitter and
+  overshoot inject *more* anomalous variance than a clean robotic teleport, which the
+  autoencoder reconstructs easily; the stealthiest aimbot is the obvious one, and it
+  still loses its entire speed edge once slowed to human reaction.
+- **Triggerbot — bounded evasion.** Detection falls monotonically (0.93 → 0.76) as the
+  reaction delay grows toward human, but **plateaus above chance**: AUC 0.76 even at full
+  human RT (utility 0).
+- **Macro — chance only at zero utility.** Detection decays to ~chance (0.60 → 0.40) as
+  the cadence jitters, but reaches it *exactly* when utility (the macro's entire value)
+  is gone.
+
+Equilibrium (detection AUC at the smallest λ with utility ≤ 0.2): aimbot **0.81**,
+triggerbot **0.76**, macro **0.40**. **Caveats (honest):** closed-world — we humanise
+toward the player's own logged distribution (the attacker's best case) and score with a
+*fixed* detector; a real arms race retrains both sides. The macro utility proxy is the
+weakest of the three axes, N = 18 sessions / 3 players, and the result is specific to
+**input-level** biometrics.
+
+→ [docs/ADVERSARIAL.md](ADVERSARIAL.md) (arms-race section)
 
 ## 8. Self-supervised pretraining & data efficiency *(Phase 8)*
 <!-- Source: notebooks/21, PRETRAINING.md, reports/{pretraining_domain_gap,data_efficiency_*}.json -->

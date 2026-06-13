@@ -162,6 +162,52 @@ Phase 2 added the LSTM autoencoder (see [docs/LSTM_AE.md](LSTM_AE.md)). At the *
 
 ---
 
+## The arms race — detection vs evasion (Phase 7)
+
+> [Phase 7](ROADMAP.md#phase-7--detection-vs-evasion-frontier). Generating a cheat is half the story; the day job at an anti-cheat company is the **arms race** — make the cheat *evade*, then characterise where the detector breaks. Code: [`pipeline/adversarial/humanizer.py`](../pipeline/adversarial/humanizer.py), [`scripts/evasion_frontier.py`](../scripts/evasion_frontier.py), [notebook 20](../notebooks/20_evasion_frontier.ipynb). Numbers below are from `reports/evasion_frontier.json` (18 real GTA legit sessions, 3 players, chunk-level LSTM-AE, 3 seeds).
+
+### The humanizer (one knob λ ∈ [0, 1])
+
+`humanizer.py` attaches a single **humanisation-strength** knob to each Phase-3 cheat. `λ=0` is the obvious bot (identical to the "obvious" preset); `λ=1` is humanised **toward the target player's own legit play**, sampled from a `PlayerBaseline` built from *that player's* recordings:
+
+| Cheat | `λ=0` | `λ=1` | Detector signal it tries to erase |
+|---|---|---|---|
+| **aimbot** | linear teleport snap, no jitter | eased + overshooting + per-step jitter matched to the player's own move-step scale, stretched to a human flick time | the straight, super-smooth snap trajectory |
+| **triggerbot** | ~3 ms sub-human click reaction | reaction sampled from a human RT model (~220 ± 40 ms) | the impossibly short click reaction |
+| **macro** | perfectly periodic cadence | inter-key jitter matched to the player's own keystroke CV | the sharp periodicity / FFT peak |
+
+Each `λ` produces (a) a humanised session the detector scores → **detection AUC(λ)**, and (b) a closed-form **utility(λ)** — the cheat's residual advantage over an unaided human (reaction-time / correction-speed edge; cadence consistency for the macro), which is monotone-decreasing by construction (utility 0 = behaves like the player = no advantage).
+
+### The frontier
+
+![Detection-vs-evasion frontier](../reports/figures/phase7_evasion_frontier.png)
+
+Chunk-level detection AUC as the cheat is humanised (mean over 3 seeds; utility in the last column):
+
+| λ | aimbot AUC | triggerbot AUC | macro AUC | utility (all cheats ≈) |
+|---|---|---|---|---|
+| 0.00 | 0.789 | **0.925** | 0.600 | ~1.0 |
+| 0.25 | 0.782 | 0.866 | 0.518 | ~0.75 |
+| 0.50 | 0.788 | 0.819 | 0.460 | ~0.50 |
+| 0.75 | 0.805 | 0.783 | 0.414 | ~0.25 |
+| 1.00 | **0.836** | 0.758 | 0.403 | **0.00** |
+
+(The classical 30 s-window detector, OneClassSVM session-max, tells the same story: aimbot **rises** 0.59 → 0.72, triggerbot stays 0.70–0.78, macro hovers ~0.56.)
+
+### The finding — the frontier favours the defender
+
+Reading detection against utility, **there is no λ that is both undetectable and worth running:**
+
+- **Aimbot — humanising backfires.** Detection *rises* with λ (chunk 0.79 → 0.84; window 0.59 → 0.72) while utility → 0. Player-matched jitter, overshoot and a longer eased snap inject *more* anomalous variance than a clean robotic teleport — which the autoencoder reconstructs easily because it is smooth and low-variance. The stealthiest aimbot is the obvious one, and it still loses all its speed edge once slowed to human reaction. No evasion path.
+- **Triggerbot — bounded evasion.** Detection falls monotonically (0.93 → 0.76) as the reaction delay grows toward human, but **plateaus well above chance**: at full human RT (utility 0) it is still **0.758**. The compressed-reaction signature fades, but the residual click-timing structure stays visible.
+- **Macro — the only one that reaches chance, at zero utility.** Detection decays to ~chance (0.60 → 0.40) as the cadence is jittered, but it gets there *exactly* when utility hits 0 — the macro's entire value **is** its perfect cadence, so jittering it away removes the signal and the advantage together.
+
+**Equilibrium** (detection AUC at the smallest λ where utility has decayed to ≤ 0.2, "barely worth running"): aimbot **0.81** (λ=0.75), triggerbot **0.76** (λ=1.0), macro **0.40** (λ=1.0). For the two cheats that carry a real input-level advantage, the detector is still firmly above chance at the point the cheat stops being useful.
+
+**Honest caveats.** This is a **closed-world** result: we humanise toward the player's *own logged* distribution (the attacker's best case) and score with a **fixed** detector — a true arms race retrains both sides, and a detector retrained on humanised cheats would shift these curves. The macro utility proxy (cadence consistency) is the least rigorous of the three axes. N is 18 sessions / 3 players. And the result is specific to **input-level** biometrics — outcome/aim-quality signals (Phase 9) are a different frontier.
+
+---
+
 ## Production implications
 
 The benchmark is unsupervised. In production:

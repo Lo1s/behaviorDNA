@@ -40,7 +40,7 @@ ongoing iteration:
 | 4.1. [Live recorder + aggregator redesign](#phase-41--live-recorder--multi-user-backlog) | Aggregator redesign (real data), live recorder, WS auth | 📝 Backlog |
 | 5. [Statistical rigor & MLOps](#phase-5--statistical-rigor--mlops-polish) | SHAP, calibration, drift, registry | ✅ Done (5a–5e); MLOps in [docs/MLOPS.md](docs/MLOPS.md) |
 | 6. [Public-corpus identification + verification](#phase-6--public-corpus-identification--verification) | Run the pipeline at 10–120 users (Balabit/SapiMouse); reframe ID as verification/open-set (EER, smurf detection) | ✅ Done (2026-06-11) — Balabit EER 0.144 @ 10 users; REPORT.md §6 pending |
-| 7. [Detection-vs-evasion frontier](#phase-7--detection-vs-evasion-frontier) | Parameterised cheat "humanizer"; detector-AUC-vs-evasion curve + equilibrium | ⬜ Not started |
+| 7. [Detection-vs-evasion frontier](#phase-7--detection-vs-evasion-frontier) | Parameterised cheat "humanizer"; detector-AUC-vs-evasion curve + equilibrium | ✅ Done (2026-06-13) — **defender-favoured frontier**: no λ is both undetectable and worth running (aimbot humanising *raises* AUC; triggerbot stays 0.76 at zero utility; macro reaches chance only at zero utility). [docs/ADVERSARIAL.md](ADVERSARIAL.md#the-arms-race--detection-vs-evasion-phase-7) |
 | 8. [Self-supervised pretraining](#phase-8--self-supervised-pretraining) | Pretrain the sequence encoder on CaptchaSolve30k; data-efficiency curve | ✅ Done (2026-06-13) — **rigorous null**: no transfer benefit (CS2CD Δ≈0.000; GTA Δ≈−0.005, within ±std); the captcha→game domain gap dominates. [docs/PRETRAINING.md](PRETRAINING.md) |
 | 9. [Outcome-labelled telemetry](#phase-9--outcome-labelled-telemetry) | CS2 demo parsing → kills/damage/accuracy per window; supervised detection + aggregator re-attempt | ⬜ Not started (spike early) |
 
@@ -66,9 +66,9 @@ Phases 1–5 closed the original portfolio scope (end-to-end pipeline, deep mode
 
 1. ~~**Phase 6 — public-corpus ID + verification (A + D merged).**~~ ✅ **done (2026-06-11)** — Balabit (10 users) closed-set 0.59 / impostor EER 0.144; SapiMouse (120 users) signal survives but data-starved + open-set rejection at chance. The honest two-sided scale answer ([docs/VERIFICATION.md](VERIFICATION.md), [nb 19](../notebooks/19_identification_at_scale_public.ipynb)). Only remaining bit: expand REPORT.md §6 from draft.
 2. **Phase 9 — outcome telemetry, *spike now / execute later*.** Data-collection lead time is the bottleneck, not code. Run the **one-evening feasibility spike** (can `demoparser2` pull view-angles + damage from your own CS2 demo, clock-synced to a simultaneous recorder run?) **during Phase 6**, then let dual-capture sessions accumulate in the background while you build 7.
-3. **Phase 7 — detection-vs-evasion frontier (C).** Most anti-cheat-native; CPU-friendly (scores through the existing LSTM-AE). `live_cheat.py` already has the easing/overshoot/jitter planners — a humanization strength knob λ parameterises what exists.
+3. ~~**Phase 7 — detection-vs-evasion frontier (C).**~~ ✅ **done (2026-06-13)** — a humanisation knob λ ([`pipeline/adversarial/humanizer.py`](../pipeline/adversarial/humanizer.py)) turns each cheat from obvious bot → humanised toward the player's own play; [`scripts/evasion_frontier.py`](../scripts/evasion_frontier.py) sweeps λ on the 18 real GTA sessions and plots detection AUC(λ) vs cheat utility(λ). **Defender-favoured equilibrium:** no λ is both undetectable and worth running (humanising the aimbot snap *raises* AUC 0.79→0.84; triggerbot stays 0.76 at zero utility; macro reaches chance only once its cadence — its whole value — is gone). [docs/ADVERSARIAL.md](ADVERSARIAL.md#the-arms-race--detection-vs-evasion-phase-7), [nb 20](../notebooks/20_evasion_frontier.ipynb).
 4. ~~**Phase 8 — self-supervised pretraining (B).**~~ ✅ **done (2026-06-13)** — masked-denoising pretraining of the LSTM-AE on CaptchaSolve30k (≈17.7k mouse sessions), then a pretrained-vs-scratch data-efficiency curve on **both** CS2CD (real cheats) and GTA. **Result is a rigorous null:** no transfer benefit at this scale, and the measured domain gap explains why (the `dt` channel — sampled fixed-tick captcha vs event-driven GTA — is PSI ≈ 10–12 mismatched). A publishable negative result: a generic human-mouse corpus is not a drop-in foundation for game-input biometrics. [docs/PRETRAINING.md](PRETRAINING.md), [nb 21](../notebooks/21_pretraining.ipynb).
-5. **Tech report (F) — grown, not written.** ✅ **full draft (2026-06-13)** ([docs/REPORT.md](REPORT.md)) — §§1–6, 8, 9, 10 + abstract & appendix drafted from the per-topic docs; **§7 (evasion) flagged as planned, not reported** (Phase 7 not yet run). The remaining action is the **manual arXiv submission** + a blog-post condensation. The structure falls out of [docs/FINDINGS.md](FINDINGS.md).
+5. **Tech report (F) — grown, not written.** ✅ **full draft (2026-06-13)** ([docs/REPORT.md](REPORT.md)) — §§1–10 + abstract & appendix drafted from the per-topic docs; **§7 (evasion) now run and reported** (Phase 7 done). The remaining action is the **manual arXiv submission** + a blog-post condensation. The structure falls out of [docs/FINDINGS.md](FINDINGS.md).
 
 > Same contract as before: **a guide, not a promise** — revisit if implementing one phase changes what the next should be. The honest-positioning rule still holds: a null result (mouse-only ID drops; pretraining doesn't transfer; the domain gap dominates) is a publishable finding, not a failure.
 
@@ -357,10 +357,13 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
   - Headline plot: **detection vs utility**, with the equilibrium region marked — *"humanized enough to evade ≈ no longer worth running."*
 
 **Deliverables:**
-- [ ] `pipeline/adversarial/humanizer.py` + `tests/test_humanizer.py`
-- [ ] `notebooks/20_evasion_frontier.ipynb` — λ-sweep, both curves, equilibrium
-- [ ] "Arms race" section in `docs/ADVERSARIAL.md` + frontier figure in README
-- [ ] `reports/evasion_frontier.json` (AUC + utility per λ)
+- [x] `pipeline/adversarial/humanizer.py` (λ knob + per-player baseline + closed-form utility) + `tests/test_humanizer.py` (28 tests)
+- [x] `scripts/evasion_frontier.py` — λ-sweep runner (reuses the chunk-LSTM-AE + OneClassSVM window detector), writes the JSON + figure
+- [x] `notebooks/20_evasion_frontier.ipynb` — λ-sweep, both curves, equilibrium (executed end-to-end)
+- [x] "Arms race" section in `docs/ADVERSARIAL.md` + frontier figure in README + REPORT.md §7
+- [x] `reports/evasion_frontier.json` + `reports/figures/phase7_evasion_frontier.png` (AUC + utility per λ)
+
+**Key results (2026-06-13):** the frontier favours the defender — **no λ is both undetectable and worth running**. Humanising the **aimbot** snap *raises* detection (chunk AUC 0.79 → 0.84, window 0.59 → 0.72: player-matched jitter/overshoot is more anomalous than a clean robotic snap) while its speed edge vanishes; the **triggerbot** stays at AUC 0.76 even at full human reaction (utility 0); the **macro** reaches ~chance (0.40) only once its perfect cadence — its entire value — is jittered away. Honest caveats: closed-world (humanise toward the player's own logged distribution, fixed detector), the macro utility proxy is the weakest axis, N = 18/3.
 
 ---
 
@@ -405,8 +408,8 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 ## Cross-cutting
 
 **Tech report (F) — grown, not written.** Condense the 14 docs into one ~10-page arXiv-style report — *"Input-level behavioural biometrics for cheat detection: what works at small N"* — plus a blog-post condensation. Submitting (even arXiv-only) converts "portfolio repo" into "research output," the currency at R&D-flavoured teams (Irdeto, Anybrain). The structure falls out of [docs/FINDINGS.md](FINDINGS.md): problem → data → windowed vs sequence → small-N rigor (ablation / CIs / calibration / serving-fidelity) → scale-up (Phase 6) → verification reframe (Phase 6/D) → evasion frontier (Phase 7) → pretraining (Phase 8).
-- [x] `docs/REPORT.md` — **full draft (2026-06-13)**: §§1–6, 8, 9, 10 + abstract & appendix drafted from the per-topic docs; §7 (evasion) flagged as planned (Phase 7 not yet run).
-- [ ] **arXiv submission** + blog post — the remaining (manual) action. §7 to be filled if/when Phase 7 lands.
+- [x] `docs/REPORT.md` — **full draft (2026-06-13)**: §§1–10 + abstract & appendix drafted from the per-topic docs; §7 (evasion) now run and reported (Phase 7 done).
+- [ ] **arXiv submission** + blog post — the remaining (manual) action.
 
 **README rewrite at end of Phase 5** — ✅ effectively done (self-updating results block via `scripts/generate_results.py`, GIF hero, funnel). Keep the results block pipeline-backed as Phases 6–9 add rows.
 

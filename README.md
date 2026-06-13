@@ -25,6 +25,12 @@
 
 ---
 
+![Detection-vs-evasion frontier](reports/figures/phase7_evasion_frontier.png)
+
+*The arms race ([Phase 7](docs/ADVERSARIAL.md#the-arms-race--detection-vs-evasion-phase-7)): a **humanisation knob λ** turns each cheat from "obvious bot" into one humanised toward the player's own play, and we plot detection vs the cheat's residual utility. The finding favours the defender — **no λ is both undetectable and worth running**: humanising the aimbot snap *raises* detection (jitter is more anomalous than a clean robotic snap), the triggerbot stays at AUC 0.76 even after its reaction edge is gone, and only the macro reaches chance — exactly when its perfect cadence (its entire value) is destroyed. Reproduce: `python -m scripts.evasion_frontier`.*
+
+---
+
 ## Highlights — what this demonstrates
 
 - **End-to-end MLOps on *real* data:** custom Windows telemetry recorder → DVC pipeline → training → calibration → drift monitoring → MLflow model registry → FastAPI + ONNX serving + Streamlit dashboard, all CI-tested (**340+ tests**).
