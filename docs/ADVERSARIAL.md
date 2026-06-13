@@ -193,7 +193,8 @@ data, regenerated deterministically (`bot_generator` seeds `random.Random(42)`)
 from the versioned legit recordings. The LSTM-AE weights are GPU-trained (not
 bit-reproducible), so they **are** versioned in DVC and pulled. A reviewer can
 run all of the below from a fresh clone — no GPU or author workstation required
-(step 0 needs read access to the DagsHub DVC remote).
+(step 0 needs a DagsHub token with read access; anonymous DVC pull is not
+enabled on the remote — see the README Quickstart's DVC-remote setup).
 
 ```bash
 source .venv/bin/activate
