@@ -356,3 +356,56 @@ class TestWebSocketEndpoint:
             assert "error" in response
             # Socket should still be open — send a valid sentinel and expect to close
             ws.send_text(json.dumps({"type": "__end__"}))
+
+
+# ---------------------------------------------------------------------------
+# Serving bundle: persist-and-load instead of fit-at-startup
+# ---------------------------------------------------------------------------
+
+
+class TestServingBundle:
+    def test_save_load_roundtrip_scores_identically(self, tmp_path):
+        from pipeline.inference.streaming import load_stream_state, save_stream_bundle
+
+        state = _stream_state(chunk_length=8)
+        bundle = tmp_path / "serving_bundle.pkl"
+        save_stream_bundle(state, bundle, metadata={"test": True})
+
+        # tmp_path has no lstm_ae.pt → loaded state has no LSTM (handled).
+        loaded = load_stream_state(bundle, model_dir=tmp_path)
+        assert loaded.lstm_ae_model is None
+        assert sorted(loaded.classical_detectors) == sorted(state.classical_detectors)
+
+        events = [_event(sec * 1000.0) for sec in range(60)]
+        for ev in events:
+            state.push_event(ev)
+        for ev in events:
+            loaded.push_event(ev)
+        a, b = state.finalize(), loaded.finalize()
+        assert abs(a.session_risk - b.session_risk) < 1e-9
+
+    def test_schema_mismatch_raises(self, tmp_path):
+        import pickle
+
+        from pipeline.inference.streaming import load_stream_state
+
+        bad = tmp_path / "bad.pkl"
+        with open(bad, "wb") as f:
+            pickle.dump({"schema_version": 999, "chunk_length": 8}, f)
+        with pytest.raises(ValueError, match="schema"):
+            load_stream_state(bad, model_dir=tmp_path)
+
+    def test_load_or_build_prefers_bundle(self, tmp_path):
+        # With a bundle present, the helper must LOAD it (1 detector here), never
+        # fall back to build_stream_state (which fits 3 detectors from
+        # data/synthetic). The detector count is the tell.
+        from pipeline.inference.streaming import (
+            load_or_build_stream_state,
+            save_stream_bundle,
+        )
+
+        state = _stream_state(chunk_length=8)
+        bundle = tmp_path / "serving_bundle.pkl"
+        save_stream_bundle(state, bundle)
+        loaded = load_or_build_stream_state(bundle_path=bundle)
+        assert set(loaded.classical_detectors) == {"IsolationForest"}

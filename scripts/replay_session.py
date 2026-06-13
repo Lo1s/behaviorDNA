@@ -132,9 +132,9 @@ def replay_offline(
     kept for API parity with the WebSocket replay.
     """
     if state is None:
-        from pipeline.inference.streaming import build_stream_state
+        from pipeline.inference.streaming import load_or_build_stream_state
 
-        state = build_stream_state()
+        state = load_or_build_stream_state()
     # Apply this session's hardware normalisation (sens/DPI + polling rate) so
     # streamed features match how the detectors were trained. Without this the
     # engine uses no-op defaults and mis-scales any non-default-hardware session.

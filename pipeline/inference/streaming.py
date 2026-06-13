@@ -505,3 +505,148 @@ def build_stream_state(
         chunk_length=chunk_length,
         device=device,
     )
+
+
+# ---------------------------------------------------------------------------
+# Serving bundle: persist the fitted detectors/scaler/calibrators so the API
+# LOADS immutable, versioned artifacts instead of fitting from data/synthetic
+# at every startup (slow, and impossible on a host without the research data).
+# ---------------------------------------------------------------------------
+
+SERVING_BUNDLE_SCHEMA_VERSION = 1
+SERVING_BUNDLE_NAME = "serving_bundle.pkl"
+
+
+def _default_bundle_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "models" / SERVING_BUNDLE_NAME
+
+
+def save_stream_bundle(
+    state: SessionStreamState,
+    path: Path | None = None,
+    *,
+    metadata: dict | None = None,
+) -> Path:
+    """Persist the fitted classical detectors + scaler + aggregator + schema.
+
+    The bundle is hardware-agnostic (no ``norm_factor``/``rate_norm``) —
+    per-session normalisation happens at serve time via
+    ``configure_for_session``. The LSTM-AE is **not** bundled; it stays a
+    separately DVC-tracked artifact (``models/lstm_ae.pt``) loaded alongside the
+    bundle by ``load_stream_state``.
+    """
+    import pickle
+    from datetime import datetime, timezone
+
+    path = Path(path) if path is not None else _default_bundle_path()
+    bundle = {
+        "schema_version": SERVING_BUNDLE_SCHEMA_VERSION,
+        "classical_detectors": state.classical_detectors,
+        "feature_scaler": state.feature_scaler,
+        "aggregator": state.aggregator,
+        "chunk_length": state.chunk_length,
+        "feature_cols": list(CHEAT_FEATURE_COLS),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "metadata": dict(metadata or {}),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as f:
+        pickle.dump(bundle, f)
+    log.info(
+        "Saved serving bundle (schema v%d) → %s", SERVING_BUNDLE_SCHEMA_VERSION, path
+    )
+    return path
+
+
+def load_stream_state(
+    path: Path | None = None,
+    *,
+    model_dir: Path | None = None,
+    device: str = "auto",
+) -> SessionStreamState:
+    """Construct a ``SessionStreamState`` from a persisted bundle + the LSTM-AE.
+
+    This is the **serving** path: it loads immutable, versioned artifacts and
+    fits nothing (it never reads ``data/synthetic``). Raises if the bundle is
+    missing or its schema version is incompatible.
+    """
+    import pickle
+
+    path = Path(path) if path is not None else _default_bundle_path()
+    with open(path, "rb") as f:
+        bundle = pickle.load(f)
+
+    sv = bundle.get("schema_version")
+    if sv != SERVING_BUNDLE_SCHEMA_VERSION:
+        raise ValueError(
+            f"serving bundle schema v{sv} != expected v{SERVING_BUNDLE_SCHEMA_VERSION} "
+            f"({path}); rebuild with `python -m scripts.build_serving_bundle`"
+        )
+
+    chunk_length = int(bundle["chunk_length"])
+    lstm_ae_model = None
+    lstm_ae_stats = None
+    if model_dir is None:
+        model_dir = Path(__file__).resolve().parents[2] / "models"
+    try:
+        from pipeline.models.lstm_ae import LSTM_AE_WEIGHTS_NAME, load_lstm_ae
+
+        if (Path(model_dir) / LSTM_AE_WEIGHTS_NAME).exists():
+            lstm_ae_model, lstm_ae_stats, meta = load_lstm_ae(model_dir, device=device)
+            chunk_length = int(
+                (meta.get("config") or {}).get("chunk_length", chunk_length)
+            )
+        else:
+            log.warning(
+                "No LSTM-AE artifact at %s — serving without the chunk signal",
+                model_dir,
+            )
+    except ImportError:
+        log.warning("torch unavailable — serving without the LSTM-AE chunk signal")
+
+    return SessionStreamState(
+        classical_detectors=bundle["classical_detectors"],
+        feature_scaler=bundle["feature_scaler"],
+        aggregator=bundle["aggregator"],
+        lstm_ae_model=lstm_ae_model,
+        lstm_ae_stats=lstm_ae_stats,
+        chunk_length=chunk_length,
+        device=device,
+    )
+
+
+def load_or_build_stream_state(
+    *,
+    bundle_path: Path | None = None,
+    device: str = "auto",
+    **build_kwargs,
+) -> SessionStreamState:
+    """Prefer the persisted serving bundle; fall back to fitting from scratch.
+
+    Production / clean-clone serving uses the versioned bundle (fast, no
+    research data needed). When the bundle is absent (e.g. a dev box that hasn't
+    run ``scripts.build_serving_bundle``), this falls back to
+    ``build_stream_state`` — slower, and it requires ``data/synthetic``.
+    """
+    bundle_path = (
+        Path(bundle_path) if bundle_path is not None else _default_bundle_path()
+    )
+    if bundle_path.exists():
+        try:
+            state = load_stream_state(bundle_path, device=device)
+            log.info("Loaded versioned serving bundle → %s", bundle_path)
+            return state
+        except Exception as e:  # corrupt/incompatible → fall back loudly
+            log.warning(
+                "Serving bundle at %s unusable (%s) — falling back to fitting",
+                bundle_path,
+                e,
+            )
+    else:
+        log.warning(
+            "No serving bundle at %s — fitting from data/synthetic (dev fallback; "
+            "slow, needs the synthetic dataset). Build one with "
+            "`python -m scripts.build_serving_bundle`.",
+            bundle_path,
+        )
+    return build_stream_state(device=device, **build_kwargs)

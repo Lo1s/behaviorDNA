@@ -174,14 +174,15 @@ Produces `reports/figures/phase4_chunk_detection.png` — the per-cheat-type chu
 | Path | What |
 |---|---|
 | `pipeline/inference/aggregator.py` | `IsotonicCalibrator`, `RiskAggregator`, `fit_aggregator_from_synthetic` |
-| `pipeline/inference/streaming.py` | `SessionStreamState`, `ScoreUpdate`, `build_stream_state` |
+| `pipeline/inference/streaming.py` | `SessionStreamState`, `ScoreUpdate`, `build_stream_state` (fit) + `save_stream_bundle`/`load_stream_state`/`load_or_build_stream_state` (serving bundle) |
 | `api/streaming.py` | `/stream` WebSocket endpoint, mounted from `api/main.py` |
 | `scripts/train_lstm_ae.py` | Persists `models/lstm_ae.pt` + `models/lstm_ae_meta.json` |
 | `scripts/replay_session.py` | CLI replay (WebSocket or offline) with optional cheat injection |
 | `scripts/build_phase4_demo.py` | Generates `phase4_chunk_detection.png` (per-cheat chunk-error distributions) |
+| `scripts/build_serving_bundle.py` | Fits + persists `models/serving_bundle.pkl` (the immutable artifact the API loads instead of fitting at startup) |
 | `dashboard/app.py` | 📡 Live Session tab |
 | `tests/test_aggregator.py` | 15 tests covering calibrator monotonicity, NaN handling, log-odds combination, explain output |
-| `tests/test_streaming.py` | 14 tests covering state machine + WebSocket via FastAPI TestClient |
+| `tests/test_streaming.py` | state machine, hardware config, finalize policy, serving bundle + WebSocket (FastAPI TestClient) |
 | `tests/test_replay_session.py` | 4 tests for cheat injection + offline replay JSONL output |
 
 The full suite (370+ tests) passes. The streaming pipeline runs entirely on the RTX 3070 via the persisted LSTM-AE artifact and falls back to CPU automatically.
@@ -194,13 +195,13 @@ The full suite (370+ tests) passes. The streaming pipeline runs entirely on the 
 
 - The **chunk-level LSTM-AE detector** — the headline. It separates injected-cheat chunks from legit chunks at ROC AUC 0.80 / 0.94 / 0.61 (aimbot / triggerbot / macro) on 18 real GTA sessions. See the figure at the top and `docs/ADVERSARIAL.md`.
 - The math: per-detector calibration is monotonic, the log-odds sum behaves correctly under independence, the prior pulls posterior risk in the right direction (verified in `tests/test_aggregator.py`).
-- The plumbing: live WebSocket events produce a session_risk in real time; the dashboard renders it as a growing timeline; `replay_offline()` drives the same engine in-process.
+- The plumbing: live WebSocket events produce a session_risk in real time; the dashboard renders it as a growing timeline; `replay_offline()` drives the same engine in-process. Serving **loads** a versioned bundle (`models/serving_bundle.pkl`) rather than fitting at startup (`load_or_build_stream_state`), so a fresh clone / Docker host serves without `data/synthetic`.
 
 **What doesn't (yet) — the honest part**
 
 Two issues surfaced the moment real (mixed-hardware) data replaced the mock baseline:
 
-1. **Normalisation gap in the streaming engine — *fixed* this round.** `SessionStreamState` never applied the session's sens/DPI (`norm_factor`) or polling-rate (`rate_norm`) normalisation — `build_stream_state()` only set no-op defaults (1.0), and `_flush_chunk` hardcoded `sensitivity=1.0, dpi=800`. On mock data (which *was* 1.0/800/1000 Hz) this was accidentally correct; on real hardware (e.g. DPI 1600) it mis-scaled both the classical window features and the LSTM chunk tensor, so *everything* looked anomalous. Fixed via `SessionStreamState.configure_for_session(...)`, now called from `replay_offline`.
+1. **Normalisation gap in the streaming engine — *fixed* this round.** `SessionStreamState` never applied the session's sens/DPI (`norm_factor`) or polling-rate (`rate_norm`) normalisation — `build_stream_state()` only set no-op defaults (1.0), and `_flush_chunk` hardcoded `sensitivity=1.0, dpi=800`. On mock data (which *was* 1.0/800/1000 Hz) this was accidentally correct; on real hardware (e.g. DPI 1600) it mis-scaled both the classical window features and the LSTM chunk tensor, so *everything* looked anomalous. Fixed via `SessionStreamState.configure_for_session(...)`, now called from **all** stream paths — the WebSocket `__session__` first message, the dashboard live tab, and `replay_offline`.
 
 2. **The session-level aggregator saturates — *Phase 4.1*.** Even after the normalisation fix, the combined `session_risk` is not usable on real data. The session-level inputs to the aggregator are near-chance (`LSTMAutoencoder/session` AUC ≈ 0.50; classical session detectors ≈ 0.50; combined ≈ 0.42 for aimbot), because a sparse cheat affects only a minority of a session's chunks/windows and the legit baseline's natural variance tail overlaps it. The isotonic calibrators are then fit on only **18 legit sessions**, so combining near-chance signals over a tiny calibration set produces a degenerate mapping that pushes even legit sessions to high risk. **The discriminative power lives at the chunk level, not in the session-level combination.**
 

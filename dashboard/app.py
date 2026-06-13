@@ -480,13 +480,13 @@ with tab5:
         if submitted:
             # Imports kept inside the handler so the dashboard loads without
             # building the streaming pipeline upfront.
-            from pipeline.inference.streaming import build_stream_state
+            from pipeline.inference.streaming import load_or_build_stream_state
             from scripts.replay_session import inject_cheat_if_requested
 
             with st.spinner(
                 "Loading streaming pipeline (LSTM-AE + detectors + aggregator)…"
             ):
-                state = build_stream_state()
+                state = load_or_build_stream_state()
 
             with open(RAW_DIR / session_path, encoding="utf-8") as f:
                 session = json.load(f)

@@ -162,9 +162,9 @@ async def lifespan(app: FastAPI):
     # once so every /stream connection reuses them. Failure here is non-fatal —
     # the batch endpoints still work.
     try:
-        from pipeline.inference.streaming import build_stream_state
+        from pipeline.inference.streaming import load_or_build_stream_state
 
-        app.state.stream_template = build_stream_state()
+        app.state.stream_template = load_or_build_stream_state()
         log.info("Streaming /stream endpoint ready (models + aggregator pre-loaded).")
     except Exception as e:
         log.warning("Could not initialise streaming components: %s", e)

@@ -41,7 +41,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from pipeline.inference.streaming import SessionStreamState, build_stream_state
+from pipeline.inference.streaming import SessionStreamState, load_or_build_stream_state
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ async def stream(websocket: WebSocket) -> None:
     if template_state is None:
         log.info("stream_template not found in app.state — building lazily")
         try:
-            template_state = build_stream_state()
+            template_state = load_or_build_stream_state()
             app_state.stream_template = template_state
         except Exception as e:
             await websocket.send_json({"error": f"failed to build stream state: {e}"})
