@@ -11,6 +11,12 @@ env/
 dist/
 build/
 
+# Coverage / test artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # DVC internals
 .dvc/cache/
 .dvc/tmp/
