@@ -14,6 +14,7 @@ domain shift): [docs/DATASET_CARDS.md](../../docs/DATASET_CARDS.md).
 | `sapimouse/` | **SapiMouse** — 120 users, 1-min + 3-min mouse sessions (`client timestamp, button, state, x, y`) | Phase 6 — `pipeline/external/sapimouse.py`, notebook 19 (the 120-user scale claim) | SapiMouse release page (Antal et al., Sapientia University — see the SapiMouse paper for the download link); unpack the per-user session CSVs here |
 | `cs2cd/` | **CS2CD** — CS2 cheat detection dataset (10 players, real cheats); convention: `cs2cd_balanced_25000.parquet` | notebooks 16/17/18 (already in use) | per notebook 05 |
 | `captchasolve30k/` | **CaptchaSolve30k** — ~20k human mouse sessions | notebook 05; Phase 8 pretraining corpus | per notebook 05 |
+| `cs2_demo/` | **CS2 SourceTV demo** (`test_demo.dem`) — a public sample for the Phase 9 outcome-telemetry spike (extraction + clock-sync validation only; not a training corpus) | Phase 9 — `pipeline/outcome/cs2_demo.py`, `scripts/parse_cs2_demo.py` | `github.com/LaihoE/demoparser` → `src/parser/test_demo.dem` (the demoparser2 repo's own test demo); or any `.dem` from your own CS2 match (Steam → My Game Stats) |
 
 **Licensing note:** all four are released for research use; check each source's
 terms before redistributing anything derived from them. Don't commit raw corpus

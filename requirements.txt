@@ -45,6 +45,7 @@ shap>=0.44                # SHAP values for LightGBM + LSTM-AE explainability
 kaggle>=1.6
 datasets>=2.19         # HuggingFace datasets — streaming download
 scipy>=1.10            # Statistical tests (Mann-Whitney U, Kruskal-Wallis, KS)
+demoparser2>=0.41      # CS2 .dem parsing — Phase 9 outcome telemetry (pipeline/outcome)
 umap-learn>=0.5        # UMAP dimensionality reduction for embedding visualisation
 
 # --- Dev / Testing ---

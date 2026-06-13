@@ -271,3 +271,66 @@ superset of the `data/synthetic/` schema (the untyped union is still present), s
 - **Honest within-session localization** (toggle labels = per-chunk ground truth).
 - A **real** adversarial benchmark — the cheat-detection results stop carrying the
   "synthetic cheat" caveat entirely.
+
+---
+
+## Phase 9 feasibility spike — CS2 outcome telemetry + clock-sync (verdict: ✅ feasible)
+
+[docs/SIGNALS.md](SIGNALS.md) ranks the *causally strongest* cheat signals as
+outcome/performance stats (headshot ratio, damage/shot, accuracy) plus view-angle
+aim dynamics — none of which are derivable from the recorder's `(dt, dx, dy)`
+stream, and the CS2CD sample is action-sparse (`damage_total = 0`). A
+**dual-capture** session (the recorder running while CS2 writes a SourceTV demo)
+would give those features *per window, with ground truth*. The whole risk is the
+**clock-sync** between the two independently-started clocks. This spike settles
+it before committing to capture sessions.
+
+**Tooling (built):** `pipeline/outcome/cs2_demo.py` (+ CLI
+`python -m scripts.parse_cs2_demo`) — parses a `.dem` via `demoparser2` into
+per-30s-window `OUTCOME_FEATURE_COLS` (same `WINDOW_MS` grid as the input
+features, so they *join* on `(session_id, window_idx)`), and estimates the
+demo↔recorder offset.
+
+**Validated against a real public demo** (a 60 MB Valve MM `de_mirage` SourceTV
+demo, 10 players, 906 s):
+
+1. **Extraction works.** `demoparser2` cleanly yields kills (73, each with a
+   `headshot` flag + hitgroup + distance), damage (264 `player_hurt`, with
+   `dmg_health`/`hitgroup`), shots (1590 `weapon_fire`), and **per-tick
+   view-angles** (pitch/yaw, every tick, all players). The most-active player
+   aggregated to 31 windows with realistic stats (12 kills, 0.13 headshot ratio,
+   0.185 accuracy) and populated per-window aim dynamics (`view_angvel_p99/max`,
+   `flick_count`).
+
+2. **Tick→time** is `tick / tickrate` (64 MM / 128 FACEIT — a CLI flag; the demo
+   header doesn't expose it reliably across `demo_version` variants → verify per
+   source).
+
+**Sync strategy — the verdict.** Wall clocks are not usable (the demo header has
+no shared epoch; the two processes start independently and may drift). The robust,
+**marker-free** approach is to **cross-correlate the recorder's mouse motion (the
+*cause*: `|(dx,dy)|/dt`) against the demo's view-angle motion (the *effect*:
+`|Δ(yaw,pitch)|/dt`)**, both resampled to a common grid. The lag at peak
+correlation is the offset; the peak height is a **built-in self-validation**
+(`estimate_offset_by_xcorr` returns `peak_corr` ∈ [-1, 1]).
+
+- On **injected** offsets the cross-correlator recovers the lag to **<1 grid
+  sample** (≤ 0.0625 s @ 16 Hz) with `peak_corr ≈ 0.99` (unit-tested).
+- Fed a **mismatched** pair (the CS2 demo vs. an unrelated GTA recorder session)
+  it returns `peak_corr ≈ 0.04` → flagged **"WEAK — do not trust"**. It refuses to
+  fabricate an alignment — exactly the property a sync needs.
+
+**What only real dual-capture can still confirm:** the *cross-device* correlation
+strength on a genuine simultaneous capture, where the recorder's raw mouse delta
+maps to the demo's view-angle through the player's sensitivity **and** CS2's aim
+punch / scripted-camera moments add noise. The mechanism is proven and
+self-reports its confidence; the one open number is "how high does `peak_corr` get
+on a real recorder↔demo pair." **Capture protocol:** start the recorder, start a
+demo (`record <name>` in console, or a Valve MM/SourceTV demo), play a combat-dense
+session, and (belt-and-braces) do **one large, deliberate flick at a scripted
+moment** near the start to give the cross-correlation an unambiguous spike to lock
+onto. Offline / `-insecure` only for anything `cheat_sim`-related ([docs/ETHICS.md](ETHICS.md)).
+
+**Next (when dual-capture data lands):** wire `OUTCOME_FEATURE_COLS` into a
+supervised cheat detector (notebook 16's D2 lever) and re-attempt the Phase 4.1
+session-level aggregator on data that can actually support it.

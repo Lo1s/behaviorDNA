@@ -161,6 +161,33 @@ KEYBOARD_FEATURE_COLS = [
 # Phase 6). On GTA data the full ID_FEATURE_COLS remains the default.
 MOUSE_ID_FEATURE_COLS = [c for c in ID_FEATURE_COLS if c not in KEYBOARD_FEATURE_COLS]
 
+# Outcome / performance features (docs/ROADMAP.md Phase 9, docs/SIGNALS.md).
+# These are the *causally strongest* cheat signals (headshot ratio, damage/shot,
+# accuracy, view-angle aim dynamics) but they are NOT computable from the
+# recorder's mouse/keyboard stream — they need outcome-labelled game telemetry
+# (a CS2 demo/log parser, see pipeline/outcome/cs2_demo.py). They are therefore a
+# *separate, additive* slice (not part of FEATURE_COLS), aligned onto the same
+# WINDOW_MS grid so they can be joined to the input features once dual-capture
+# data lands. Data-gated: emitted by pipeline.outcome, consumed by a future
+# supervised detector (Phase 9 deliverable 4).
+OUTCOME_FEATURE_COLS = [
+    # Combat outcome (per window)
+    "kills",
+    "deaths",
+    "shots_fired",
+    "hits_dealt",
+    "damage_dealt",
+    "accuracy",  # hits_dealt / shots_fired
+    "damage_per_shot",  # damage_dealt / shots_fired
+    "headshot_ratio",  # head-hitgroup hits / hits_dealt
+    "kills_per_shot",  # kill efficiency
+    # View-angle aim dynamics (per-tick yaw/pitch -> angular velocity, deg/s)
+    "view_angvel_p50",
+    "view_angvel_p99",
+    "view_angvel_max",
+    "flick_count",  # angular-velocity spikes above FLICK_ANGVEL_DEG_S
+]
+
 META_COLS = [
     "session_id",
     "window_idx",
