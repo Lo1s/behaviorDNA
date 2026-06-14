@@ -109,12 +109,27 @@ def _build_loaders(batch: int = 256):
 
 
 def train_ae(
-    model: nn.Module, tl: DataLoader, vl: DataLoader, epochs: int, lr: float
+    model: nn.Module,
+    tl: DataLoader,
+    vl: DataLoader,
+    epochs: int,
+    lr: float,
+    trainable_params=None,
 ) -> dict:
-    """Generic reconstruction-AE training loop shared by all architectures."""
+    """Generic reconstruction-AE training loop shared by all architectures.
+
+    ``trainable_params`` (default: all of ``model.parameters()``) restricts the
+    optimiser to a subset — Phase 8.1's frozen-encoder arm passes only the
+    decoder params so the pretrained encoder embedding is held fixed.
+    """
     dev = _device()
     model = model.to(dev)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    params = (
+        list(trainable_params)
+        if trainable_params is not None
+        else list(model.parameters())
+    )
+    opt = torch.optim.Adam(params, lr=lr)
     loss_fn = nn.MSELoss()
     best_val, best_state, last_train = float("inf"), None, float("nan")
     t0 = time.perf_counter()
