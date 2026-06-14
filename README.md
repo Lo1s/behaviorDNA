@@ -3,6 +3,7 @@
 > **Player behavioral biometrics from raw input telemetry.**
 > Can we identify *who* is playing — or detect automation — purely from mouse and keyboard patterns?
 
+[![Live Demo](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://behaviordna.streamlit.app)
 [![CI](https://github.com/Lo1s/behaviorDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Lo1s/behaviorDNA/actions/workflows/ci.yml)
 [![Experiment Tracking](https://img.shields.io/badge/Experiment_Tracking-DagsHub-f76c6c?logo=mlflow)](https://dagshub.com/Lo1s/behaviorDNA)
 
@@ -12,8 +13,8 @@
 
 *15 seconds of the system working: a **triggerbot injected into a real GTA session**, replayed chunk-by-chunk through the LSTM autoencoder. Shaded bands are the injected-cheat ground truth; diamonds are chunks the model flags (reconstruction error above the legit 95th percentile). Reproduce: `python -m scripts.build_phase4_demo --gif`.*
 
-<!-- FUNNEL: drop the hosted Streamlit URL + video link here when live -->
-**▶ See it yourself:** 🚀 **[Run the demo](docs/DEPLOY.md)** — `docker compose up` → dashboard at `:8501` (or one-click on Streamlit Cloud, see [DEPLOY.md](docs/DEPLOY.md)) · 📊 **[Results](#results-at-a-glance)** · 📜 **[The honest findings](docs/FINDINGS.md)**
+<!-- FUNNEL: hosted URL is live below; add the 3-min walkthrough video link here when recorded -->
+**▶ See it yourself:** 🚀 **[Live demo](https://behaviordna.streamlit.app)** (hosted dashboard, tabs 1–4) · 🐳 **[Run locally](docs/DEPLOY.md)** (full app incl. 📡 Live Session) · 📊 **[Results](#results-at-a-glance)** · 📜 **[The honest findings](docs/FINDINGS.md)**
 
 ---
 

@@ -1,0 +1,22 @@
+# Hosted-demo dependencies — Streamlit Community Cloud.
+#
+# Slim on purpose. The hero tabs (Overview / Player Profiles / Predict /
+# Session Explorer) are torch-free, so this drops torch/onnx/xgboost/shap/mlflow/
+# demoparser2/umap/… from the root requirements.txt to fit the ~1 GB free tier.
+# Community Cloud installs THIS file (not the root one): the entrypoint directory
+# takes precedence over the repo root, and the entrypoint is dashboard/app.py.
+#
+# The 📡 Live Session tab needs PyTorch + the streaming engine; it is excluded
+# here and degrades to a "run locally" note on hosted.
+#
+# scikit-learn / lightgbm / numpy floors match the versions models/model.pkl was
+# pickled with (sklearn 1.8, lightgbm 4.6, numpy 2.x) so it unpickles cleanly.
+
+streamlit>=1.32
+pandas>=2.2
+numpy>=2.0
+pyarrow>=15.0
+plotly>=5.18
+scikit-learn>=1.8,<2
+lightgbm>=4.4
+dvc[http]>=3.0          # targeted `dvc pull` of the demo slice from DagsHub

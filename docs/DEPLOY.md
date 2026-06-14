@@ -33,16 +33,28 @@ them at startup instead.
 
 ## Hosted demo — Streamlit Community Cloud
 
-1. Point a new app at `dashboard/app.py` on the `main` branch.
-2. Add secrets `DAGSHUB_USER` and `DAGSHUB_TOKEN` — `_ensure_artifact_or_stop()`
-   in `dashboard/app.py` configures the DVC remote and `dvc pull`s the model +
-   splits on first load.
-3. The **Overview / Player Profiles / Predict / Session Explorer** tabs work on
-   CPU. The **📡 Live Session** tab loads the LSTM-AE (PyTorch) + streaming
-   engine — heavier than the free tier likes; run that tab locally.
+The hero tabs run on the free tier; the repo is pre-wired for it.
 
-(HuggingFace Spaces works the same way: Streamlit SDK, the two secrets, `dvc
-pull` on startup.)
+1. Point a new app at `dashboard/app.py` on the `main` branch. Community Cloud
+   installs **`dashboard/requirements.txt`** — a slim, torch-free dependency set
+   that sits next to the entrypoint and therefore takes precedence over the root
+   `requirements.txt`. That is what keeps the build inside the free tier.
+2. **Artifacts.** On first load `_ensure_artifact_or_stop()` runs a *targeted*
+   `dvc pull` of just `models/model.pkl` + the three `data/splits/*.parquet`
+   (~1.1 MB) — never `data/raw` or the big PyTorch artifacts.
+   - **While the DagsHub repo is private:** add app secrets `DAGSHUB_USER` and
+     `DAGSHUB_TOKEN` (a read-scoped token) so the pull authenticates.
+   - **Once the repo is public** (the recruiter-handover step): the pull works
+     **anonymously — delete the secrets**, nothing else changes.
+3. Claim a subdomain (e.g. `behaviordna` → `https://behaviordna.streamlit.app`) so
+   it matches the badge/link at the top of the README — or update that one line to
+   whatever URL Streamlit assigns.
+4. The **Overview / Player Profiles / Predict / Session Explorer** tabs work on
+   CPU. The **📡 Live Session** tab needs the LSTM-AE (PyTorch) + streaming engine,
+   excluded from the slim image, so on hosted it shows a "run locally" note.
+
+(HuggingFace Spaces works the same way: Streamlit SDK, the slim requirements, a
+targeted `dvc pull` on startup.)
 
 ## API quick check
 

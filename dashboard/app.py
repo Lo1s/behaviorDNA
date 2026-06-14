@@ -79,32 +79,67 @@ st.set_page_config(
 st.title("🧬 BehaviorDNA — Behavioral Biometrics Explorer")
 
 
+# Artifacts the hosted demo needs (tabs 1–4). Kept minimal so a startup
+# `dvc pull` on a constrained free-tier host never drags down data/raw or the big
+# PyTorch artifacts (lstm_ae.pt / pretrained_encoder.pt / serving_bundle.pkl).
+_DEMO_PULL_TARGETS = [
+    "models/model.pkl",
+    "data/splits/train.parquet",
+    "data/splits/val.parquet",
+    "data/splits/test.parquet",
+]
+
+
+def _demo_artifacts_present() -> bool:
+    return MODEL_PATH.exists() and (SPLITS / "test.parquet").exists()
+
+
 def _ensure_artifact_or_stop() -> None:
-    """On a fresh/hosted env the DVC-tracked model may be absent. Try a token-based
-    `dvc pull` if creds are present; otherwise show a friendly message and stop
-    rather than crashing with FileNotFoundError."""
-    if MODEL_PATH.exists():
+    """On a fresh/hosted env the DVC-tracked artifacts may be absent. Pull just the
+    demo targets — anonymously when the DagsHub repo is public, or with
+    `DAGSHUB_USER`/`DAGSHUB_TOKEN` secrets while it is still private — instead of
+    crashing with FileNotFoundError. A bare `dvc pull` is deliberately avoided so a
+    free-tier host never fetches data/raw or the big PyTorch artifacts."""
+    if _demo_artifacts_present():
         return
     import os
     import subprocess
 
-    if os.environ.get("DAGSHUB_TOKEN"):
+    def _cred(name: str) -> str | None:
+        # Streamlit Community Cloud surfaces secrets via st.secrets; locally/CI
+        # they come from the environment. Try both so private-repo auth works
+        # regardless of how the host exposes them.
+        try:
+            if name in st.secrets:
+                return str(st.secrets[name])
+        except Exception:  # noqa: BLE001 — no secrets.toml present → fall back to env
+            pass
+        return os.environ.get(name)
+
+    # Basic-auth creds only while the DagsHub repo is private; once it is public
+    # the targeted pull below works anonymously and these are unnecessary.
+    token = _cred("DAGSHUB_TOKEN")
+    if token:
         for key, val in (
             ("auth", "basic"),
-            ("user", os.environ.get("DAGSHUB_USER", "token")),
-            ("password", os.environ["DAGSHUB_TOKEN"]),
+            ("user", _cred("DAGSHUB_USER") or "token"),
+            ("password", token),
         ):
             subprocess.run(
                 ["dvc", "remote", "modify", "origin", "--local", key, val],
                 cwd=ROOT,
                 check=False,
             )
-        subprocess.run(["dvc", "pull"], cwd=ROOT, check=False, timeout=600)
-    if not MODEL_PATH.exists():
+    subprocess.run(
+        ["dvc", "pull", *_DEMO_PULL_TARGETS], cwd=ROOT, check=False, timeout=600
+    )
+    if not _demo_artifacts_present():
         st.error(
-            "**No trained model found.** This hosted demo needs the DVC-tracked "
-            "artifacts. Set `DAGSHUB_USER` / `DAGSHUB_TOKEN` secrets so the app can "
-            "`dvc pull`, or run `dvc repro` locally. See [docs/DEPLOY.md](docs/DEPLOY.md)."
+            "**Demo artifacts unavailable.** The hosted demo `dvc pull`s a small "
+            "model + data slice (~1 MB) from DagsHub. While the DagsHub repo is "
+            "private, set `DAGSHUB_USER` / `DAGSHUB_TOKEN` in the app's Streamlit "
+            "secrets; once it is public this works with no secret. Locally, run "
+            "`dvc repro` or `dvc pull`. See [docs/DEPLOY.md](docs/DEPLOY.md)."
         )
         st.stop()
 
@@ -479,9 +514,21 @@ with tab5:
 
         if submitted:
             # Imports kept inside the handler so the dashboard loads without
-            # building the streaming pipeline upfront.
-            from pipeline.inference.streaming import load_or_build_stream_state
-            from scripts.replay_session import inject_cheat_if_requested
+            # building the streaming pipeline upfront. On the hosted free tier
+            # PyTorch is excluded (see dashboard/requirements.txt), so this
+            # degrades to a friendly note instead of an unhandled ImportError.
+            try:
+                from pipeline.inference.streaming import load_or_build_stream_state
+                from scripts.replay_session import inject_cheat_if_requested
+            except ModuleNotFoundError:
+                st.info(
+                    "🔌 **Live replay runs locally, not on the hosted demo.** It needs "
+                    "PyTorch (the LSTM-AE + streaming engine), excluded from the "
+                    "free-tier image. Clone the repo and run "
+                    "`streamlit run dashboard/app.py` to use this tab — the chunk-level "
+                    "detector in action is in the GIF at the top of the README."
+                )
+                st.stop()
 
             with st.spinner(
                 "Loading streaming pipeline (LSTM-AE + detectors + aggregator)…"
