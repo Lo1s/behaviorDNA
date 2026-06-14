@@ -25,6 +25,12 @@ ongoing iteration:
       DagsHub account/token**. Anonymous pull is currently disabled → reproduction
       needs a token (see [docs/ADVERSARIAL.md](ADVERSARIAL.md) → "Reproducing").
       DagsHub-UI only; verified 2026-06-13 that token-free `dvc pull` fails.
+- [ ] **Then delete the hosted Streamlit demo's DagsHub secrets.** The live demo
+      (`behaviordna.streamlit.app` → Manage app → Settings → Secrets) carries
+      `DAGSHUB_USER` / `DAGSHUB_TOKEN` only so it can `dvc pull` while the repo is
+      private. Once DVC read is public the targeted pull works **anonymously**, so
+      remove both secrets (and rotate the token if it's reused anywhere). No code
+      change needed — `_ensure_artifact_or_stop()` falls back to an anonymous pull.
 
 ---
 
