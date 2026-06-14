@@ -48,6 +48,7 @@ ongoing iteration:
 | 6. [Public-corpus identification + verification](#phase-6--public-corpus-identification--verification) | Run the pipeline at 10–120 users (Balabit/SapiMouse); reframe ID as verification/open-set (EER, smurf detection) | ✅ Done (2026-06-11) — Balabit EER 0.144 @ 10 users; REPORT.md §6 pending |
 | 7. [Detection-vs-evasion frontier](#phase-7--detection-vs-evasion-frontier) | Parameterised cheat "humanizer"; detector-AUC-vs-evasion curve + equilibrium | ✅ Done (2026-06-13) — **defender-favoured frontier**: no λ is both undetectable and worth running (aimbot humanising *raises* AUC; triggerbot stays 0.76 at zero utility; macro reaches chance only at zero utility). [docs/ADVERSARIAL.md](ADVERSARIAL.md#the-arms-race--detection-vs-evasion-phase-7) |
 | 8. [Self-supervised pretraining](#phase-8--self-supervised-pretraining) | Pretrain the sequence encoder on CaptchaSolve30k; data-efficiency curve | ✅ Done (2026-06-13) — **rigorous null**: no transfer benefit (CS2CD Δ≈0.000; GTA Δ≈−0.005, within ±std); the captcha→game domain gap dominates. [docs/PRETRAINING.md](PRETRAINING.md) |
+| 8.1. [In-domain pretraining](#phase-81--in-domain-pretraining-does-closing-the-domain-gap-rescue-the-null) | Pretrain in-domain on full CS2CD (795 matches) + frozen-encoder arm; does closing the domain gap rescue the Phase 8 null? | 📝 Planned — GPU desktop; reuses the Phase 8 stack |
 | 9. [Outcome-labelled telemetry](#phase-9--outcome-labelled-telemetry) | CS2 demo parsing → kills/damage/accuracy per window; supervised detection + aggregator re-attempt | 🚧 **Spike done (2026-06-14)** — `demoparser2` extracts kills/damage/shots/per-tick view-angles (validated on a real public demo); marker-free motion **clock-sync** recovers injected offsets to <1 sample & self-rejects mismatches. Supervised detector + 4.1 re-attempt await **dual-capture** data. |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
@@ -394,6 +395,34 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 
 ---
 
+## Phase 8.1 — In-domain pretraining (does closing the domain gap rescue the null?)
+
+> 📝 **Planned.** Direct follow-up to the Phase 8 null. Reuses the entire Phase 8 stack; the only new work is an in-domain pretraining source + the frozen-encoder arm + a cached-tensor data pipeline. **Needs the GPU desktop.**
+
+**Why:** Phase 8's null is attributed to the **captcha→game domain gap** (the `dt` channel, PSI ≈ 10–12). That diagnosis is testable: remove the suspected cause by pretraining *in-domain* on the **full public CS2CD release** (795 matches — far more match/player diversity than the 10-player slice Phase 8's data-efficiency curve ever saw) instead of out-of-domain captcha. This is the single variant that could flip the null, and it directly answers the reviewer's P2 "true transfer study" the way Phase 8 didn't (in-domain source + the frozen arm). It also addresses the honest scope gaps left by Phase 8: no frozen-encoder condition, and the diversity axis was capped at 10 players.
+
+**Hypothesis:** in-domain pretraining shrinks the spatial-channel gap and *may* lift low-budget transfer; the `dt` mismatch (CS2 fixed ~15.6 ms tick vs GTA event-driven) will cap GTA transfer unless the temporal encoding is matched.
+
+**Design:**
+- **Conditions (the frozen arm Phase 8 skipped goes here):** (A) scratch / trainable; (B) CS2CD-pretrained / **frozen** encoder; (C) CS2CD-pretrained / fine-tuned.
+- **Two source variants to isolate the `dt` term:** **S1** = pretrain on full CS2CD as-is (native tick); **S2** = same but resampled/encoded to the GTA temporal grid (the [PRETRAINING.md](PRETRAINING.md) "match temporal encoding" fix). The S1↔S2 diff *is* the measured `dt`-gap contribution.
+- **Targets / splits:** GTA cheat-detection chunk-AUC (the real transfer test, **player-disjoint**); CS2CD held-out as a weak sanity check (near-separable at random init, **match/player-disjoint**). Build a match/player manifest + fixed splits *before* sampling any window.
+- **New lever = pretraining diversity:** number of CS2CD matches/players (e.g. 50 / 200 / 795), the axis Phase 8 never scaled past 10. GTA fine-tune budget stays `[2, 5, 10, 15]` sessions.
+- **Rigor:** 3 seeds + CIs on final configs only; re-run the domain-gap report with CS2CD-as-reference *before* interpreting any null.
+
+**The real engineering bottleneck (not disk):** models are 0.08–0.21M params, so a 3070 is never compute-bound — with models this small the run is **dataloader-bound**, the GPU starving while the CPU re-encodes per-tick streams. Disk is a one-time ~52 GB download; column-projecting to `{dx, dy, FIRE, RIGHTCLICK, match_id, player_id, tick, label}` collapses the working set to single-digit GB (the "100–150 GB" figure assumes a naive pipeline). The 16 GB system RAM is the hard ceiling that mandates streaming. **Mitigation:** encode tensors **once** to cached per-match `.pt`/memmap shards, then sample chunks lazily per epoch (near-zero per-epoch CPU). Reuses `iter_batches` streaming (already in `corpora.py`), `train_ae`, `score_sequences`, `_chunk_cheat_labels` unchanged.
+
+**Deliverables:**
+- [ ] **Step 0 — verify the diversity axis exists.** Confirm from the CS2CD dataset card / a `player_id` count that the full release is genuinely *player*-diverse, not 795 matches across a handful of players. **If player-thin:** the diversity-axis lever weakens and the S1↔S2 temporal-encoding variant becomes the primary experiment. (This entry currently *assumes* match diversity ⇒ player diversity — that assumption is unverified.)
+- [ ] full-CS2CD column-projected ingest + cached per-match tensor shards (lazy per-epoch chunk sampling; 16 GB-RAM-safe)
+- [ ] `scripts/indomain_transfer.py` — arms A/B/C × sources S1/S2 × pretraining-diversity axis → `reports/phase8_1_indomain_transfer.json` + overlay figure (Phase 8 captcha-source vs S1/S2 CS2CD-source data-efficiency curves)
+- [ ] re-run `domain_gap_report.py` with CS2CD-as-reference
+- [ ] update `docs/PRETRAINING.md` with the verdict
+
+**Pre-registered outcomes (all publishable):** (a) B/C beat A at low budget → in-domain source matters, the foundation-model line holds; (b) still flat → the null is deeper than domain (the task's signal is in obvious snaps, not learnable priors); (c) S2 ≫ S1 → the gap was specifically temporal.
+
+---
+
 ## Phase 9 — Outcome-labelled telemetry
 
 **Why:** [docs/SIGNALS.md](SIGNALS.md) says the *causally strongest* cheat signals are outcome/performance stats (headshot ratio, damage/shot, accuracy) that **cannot be collected from GTA** — the CS2CD sample is action-sparse (`damage_total = 0`). An instrumentable game with demo/log parsing gives kills/damage/accuracy **per window with ground truth**, unlocking the supervised detection notebook 16's D2 lever is waiting on, and a *real* re-attempt of the Phase 4.1 session-level aggregator (which saturated on synthetic sparse injection).
@@ -442,6 +471,7 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 | 6. Public-corpus ID + verification | no — uses **public** corpora (Balabit/SapiMouse) | ✅ start now; CPU-only |
 | 7. Evasion frontier | no — uses existing legit windows + LSTM-AE | ✅ start now; CPU-friendly |
 | 8. Pretraining | no — CaptchaSolve30k already cached | ⚠️ needs **GPU desktop** |
+| 8.1. In-domain pretraining | no — full CS2CD release is public/re-downloadable | ⚠️ needs **GPU desktop** + one-time ~52 GB download |
 | 9. Outcome telemetry | **yes** — new CS2 dual-capture sessions | ✅ spike done (parser + clock-sync validated on a public demo); execution capture lead-time bound |
 
 **Extension order:** 6 → (9 spike) → 7 → 8, with the tech report (F) growing alongside. See [Extension sequencing](#extension-sequencing-phases-69--the-tech-report).
