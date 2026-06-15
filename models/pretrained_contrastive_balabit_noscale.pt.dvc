@@ -1,0 +1,5 @@
+outs:
+- md5: 3ed159fd66957cd2113a5be79e982330
+  size: 789269
+  hash: md5
+  path: pretrained_contrastive_balabit_noscale.pt
