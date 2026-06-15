@@ -134,6 +134,8 @@ class TestHealthEndpoint:
         assert body["trained"] is True
         # identification models carry the decoupled ID feature set
         assert body["feature_count"] == len(ID_FEATURE_COLS)
+        # Served probabilities are raw predict_proba — /health must say so (H4).
+        assert body["calibrated"] is False
 
     def test_untrained_model_reports_not_trained(self):
         client = get_client(make_lgbm_artifact(trained=False))

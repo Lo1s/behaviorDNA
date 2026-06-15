@@ -5,7 +5,7 @@ BehaviorDNA FastAPI inference endpoint.
 
 Loads models/model.pkl once at startup and exposes three endpoints:
 
-  GET  /health          — model type, trained status, feature count
+  GET  /health          — model type, trained status, feature count, calibration flag
   POST /predict/player  — LightGBM player identification
   POST /predict/anomaly — IsolationForest anomaly scoring
 
@@ -82,6 +82,8 @@ class FeatureVector(BaseModel):
 class PlayerPrediction(BaseModel):
     session_id: str
     predicted_player: str
+    # Raw LightGBM predict_proba — uncalibrated (no calibrator is persisted into
+    # the serving artifact; see MODEL_CARD.md and /health's "calibrated" flag).
     probabilities: dict[str, float]
 
 
@@ -192,13 +194,18 @@ app.include_router(streaming_router)
 
 @app.get("/health")
 def health(request: Request) -> dict:
-    """Returns model type, trained status, and feature count."""
+    """Returns model type, trained status, feature count, and whether served
+    probabilities are calibrated (they are not — see MODEL_CARD.md)."""
     artifact = _get_artifact(request)
     return {
         "model_type": artifact.get("model_type"),
         "trained": artifact.get("trained", False),
         "feature_count": len(artifact.get("feature_cols", FEATURE_COLS)),
         "classes": artifact.get("classes"),
+        # Player probabilities are raw predict_proba; no calibrator is persisted
+        # into the serving artifact (the val fold is too small — see MODEL_CARD.md).
+        # Defaults False; flips to True only if a calibrated artifact is ever served.
+        "calibrated": bool(artifact.get("calibrated", False)),
     }
 
 

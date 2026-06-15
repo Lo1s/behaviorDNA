@@ -16,7 +16,7 @@ anti-cheat context — their **limitations and the cost of being wrong**.
 |---|---|
 | **Type** | `LGBMClassifier` (multiclass) on the 25-feature `ID_FEATURE_COLS` set (decoupled from the cheat detectors' 30 — [docs/SIGNALS.md](docs/SIGNALS.md)) |
 | **Input** | one 30 s window → 25 features (mouse kinematics/trajectory, click dynamics, keyboard, session aggregates), sens/DPI- + polling-normalised |
-| **Output** | player label + calibrated class probabilities |
+| **Output** | player label + raw class probabilities (`predict_proba`; **uncalibrated** at serving — see Calibration below) |
 | **Code** | `pipeline/training/run.py`, `pipeline/features/run.py` |
 
 **Metrics (real data, held-out test):** accuracy **0.85** (95% CI 0.74–0.97),
@@ -29,8 +29,13 @@ differs) accuracy is **0.75** — the honest behavioural-biometric number, since
 the 3-class figure is partly inflated by a third player on different hardware
 ([FINDINGS](docs/FINDINGS.md)).
 
-**Calibration:** ECE/Brier measured; isotonic improves Brier (0.275→0.224),
-Platt does not (small-N fragility). See `notebooks/13_calibration.ipynb`.
+**Calibration:** ECE/Brier are *measured* (isotonic improves Brier 0.275→0.224;
+Platt does not — small-N fragility); see `notebooks/13_calibration.ipynb`. This
+is a **diagnostic only**: the served artifact (`models/model.pkl`) and the API
+return raw `predict_proba`, **not** calibrated probabilities. No calibrator is
+persisted into the serving path because the validation fold (46 windows) is too
+small to fit a trustworthy one — treat the API probabilities as uncalibrated
+scores, not thresholdable likelihoods.
 
 ## 2. Cheat detection (anomaly)
 
@@ -63,8 +68,9 @@ In anti-cheat the asymmetry is everything: **a false positive bans an innocent
 player.** A detector at 95% TPR / 5% FPR wrongly flags 1 in 20 legitimate
 players — unacceptable at population scale. Production systems tune to FPR
 ≤ 0.1% and treat a model score as *evidence*, not a verdict. This project
-therefore (a) reports calibrated probabilities and ECE/Brier (so a threshold
-*means* something), (b) keeps promotion to "Production" a deliberate, audited
+therefore (a) *measures* probability calibration (ECE/Brier) so the gap to a
+thresholdable probability is quantified — though the served API returns raw,
+uncalibrated probabilities (§1), (b) keeps promotion to "Production" a deliberate, audited
 step (`scripts/promote_model.py`), and (c) treats the live risk score as
 advisory — it is never wired to an automated action.
 
