@@ -22,7 +22,10 @@ Both paths apply the same preprocessing:
 
 Outputs:
   models/model.pkl          — artifact dict (see ARTIFACT_KEYS below)
-  models/model.onnx         — ONNX model (empty bytes if export fails)
+  models/model.onnx         — ONNX model. For the served LightGBM identifier the
+                              export + parity check are a HARD gate (a failure
+                              fails this stage; see export_onnx / finding H5);
+                              other model types fall back to empty bytes.
   reports/train_metrics.json
 
 Empty-data handling: if train.parquet is empty the stage writes a placeholder
@@ -546,20 +549,36 @@ def train_one_class_svm(
     return artifact, metrics
 
 
+# Model types whose ONNX export is a headline serving claim — the float64-faithful
+# LightGBM identifier (docs/FINDINGS.md #7). For these, export + parity are a HARD
+# gate: any failure fails the train stage rather than silently shipping an empty or
+# unfaithful models/model.onnx while `dvc repro` stays green (review finding H5).
+# Other model types keep the soft fallback (empty bytes on failure).
+ONNX_HARD_GATE_TYPES = {"lightgbm"}
+
+
 def export_onnx(artifact: dict, out_path: Path) -> None:
     """Export the trained model to ONNX.
 
     LightGBM goes through the float64-faithful composed export in
-    pipeline/onnx_export.py (probability MAE ~1e-8, 100% label agreement —
-    the float32 path documented in docs/FINDINGS.md #7 flips labels). Other
-    sklearn classifiers use the stock skl2onnx pipeline conversion, which is
-    already faithful for them. Writes empty bytes on ImportError or any
-    conversion failure so the pipeline stays green regardless of dependency
-    availability.
+    pipeline/onnx_export.py (probability MAE ~1e-8, 100% label agreement — the
+    float32 path documented in docs/FINDINGS.md #7 flips labels). Other sklearn
+    classifiers use the stock skl2onnx pipeline conversion, which is already
+    faithful for them.
+
+    For ``model_type`` in ``ONNX_HARD_GATE_TYPES`` (the served LightGBM
+    identifier) the export **and** the parity check are a hard gate: any failure
+    raises, failing the train stage so ``dvc repro`` can never go green on an
+    empty or unfaithful ``model.onnx``. For other model types a failure is logged
+    and an empty ``model.onnx`` is written so the pipeline still completes.
     """
     if not artifact.get("trained"):
+        # Nothing to export (e.g. <2 players → untrained placeholder); an empty
+        # model.onnx is expected here, not a failure.
         out_path.write_bytes(b"")
         return
+
+    hard = artifact.get("model_type") in ONNX_HARD_GATE_TYPES
 
     try:
         model = artifact["model"]
@@ -586,9 +605,22 @@ def export_onnx(artifact: dict, out_path: Path) -> None:
         log.info("ONNX model saved: %s  (%d bytes)", out_path, out_path.stat().st_size)
         _validate_onnx_fidelity(artifact, out_path)
     except ImportError as exc:
+        if hard:
+            raise RuntimeError(
+                f"ONNX dependency missing ({exc}) — required to export the served "
+                f"{artifact['model_type']} model. Install the onnx extras "
+                "(onnx/onnxruntime/skl2onnx/onnxmltools; see requirements.txt)."
+            ) from exc
         log.warning("Missing ONNX dependency (%s) — writing empty model.onnx", exc)
         out_path.write_bytes(b"")
     except Exception as exc:
+        if hard:
+            # Do NOT ship an empty/unfaithful serving model behind a green repro.
+            raise RuntimeError(
+                f"ONNX export/parity FAILED for the served {artifact['model_type']} "
+                f"model ({type(exc).__name__}: {exc}). The exported model.onnx must "
+                "match the sklearn model bit-for-bit (docs/FINDINGS.md #7)."
+            ) from exc
         log.warning(
             "ONNX export failed (%s: %s) — writing empty model.onnx",
             type(exc).__name__,
@@ -598,12 +630,14 @@ def export_onnx(artifact: dict, out_path: Path) -> None:
 
 
 def _validate_onnx_fidelity(artifact: dict, out_path: Path, tol: float = 1e-6) -> None:
-    """Warn if the exported ONNX probabilities diverge from the sklearn model.
+    """Check exported ONNX probabilities against the sklearn model.
 
     The regression gate for the serving-fidelity bug documented in
-    docs/FINDINGS.md #7 — re-checked at every export, and enforced hard in CI
-    by tests/test_onnx_export.py. Best-effort here: skipped if onnxruntime is
-    unavailable, and never fails training.
+    docs/FINDINGS.md #7, re-checked at every export. **Raises**
+    ``OnnxExportError`` on a real fidelity mismatch so ``export_onnx`` can fail
+    the train stage for hard-gated models (the caller decides whether to soften
+    that into an empty artifact for non-gated types). Skipped — without raising —
+    only when onnxruntime itself is unavailable.
     """
     model = artifact.get("model")
     if model is None or not hasattr(model, "predict_proba"):
@@ -612,32 +646,26 @@ def _validate_onnx_fidelity(artifact: dict, out_path: Path, tol: float = 1e-6) -
         import numpy as _np
         import onnxruntime as _ort
 
-        from pipeline.onnx_export import parity_report
-
-        rng = _np.random.default_rng(0)
-        X = rng.normal(size=(256, len(artifact["feature_cols"])))
-        sess = _ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
-        report = parity_report(artifact, sess, X)
-        if report["probability_mae"] > tol or report["label_agreement"] < 1.0:
-            log.warning(
-                "ONNX export fidelity check FAILED: probability MAE %.2e (tol %.0e), "
-                "label agreement %.3f — the serving graph disagrees with the sklearn "
-                "model (see docs/FINDINGS.md #7). Do not use models/model.onnx for "
-                "production scoring until resolved.",
-                report["probability_mae"],
-                tol,
-                report["label_agreement"],
-            )
-        else:
-            log.info(
-                "ONNX export fidelity check passed (probability MAE %.2e, "
-                "label agreement 100%%).",
-                report["probability_mae"],
-            )
+        from pipeline.onnx_export import OnnxExportError, parity_report
     except ImportError:
-        pass
-    except Exception as exc:  # never fail training on a diagnostic
-        log.warning("ONNX fidelity check skipped (%s).", exc)
+        log.warning("onnxruntime unavailable — skipping ONNX fidelity check.")
+        return
+
+    rng = _np.random.default_rng(0)
+    X = rng.normal(size=(256, len(artifact["feature_cols"])))
+    sess = _ort.InferenceSession(str(out_path), providers=["CPUExecutionProvider"])
+    report = parity_report(artifact, sess, X)
+    if report["probability_mae"] > tol or report["label_agreement"] < 1.0:
+        raise OnnxExportError(
+            f"ONNX fidelity check FAILED: probability MAE "
+            f"{report['probability_mae']:.2e} (tol {tol:.0e}), label agreement "
+            f"{report['label_agreement']:.3f} — the serving graph disagrees with "
+            "the sklearn model (see docs/FINDINGS.md #7)."
+        )
+    log.info(
+        "ONNX export fidelity check passed (probability MAE %.2e, label agreement 100%%).",
+        report["probability_mae"],
+    )
 
 
 def log_to_mlflow(artifact: dict, metrics: dict, cfg: dict) -> None:

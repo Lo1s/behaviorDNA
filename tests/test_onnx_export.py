@@ -180,3 +180,49 @@ class TestExportOnnxDispatch:
         onnx.checker.check_model(model)
         out_names = [o.name for o in model.graph.output]
         assert out_names == ["label", "probabilities"]
+
+
+class TestExportOnnxHardGate:
+    """Finding H5: for the served LightGBM model, export/parity failures must
+    FAIL the train stage (not write empty bytes behind a green dvc repro)."""
+
+    def test_lightgbm_conversion_failure_raises(self, artifact, tmp_path, monkeypatch):
+        import pipeline.onnx_export as oe
+
+        def boom(*a, **k):
+            raise RuntimeError("converter exploded")
+
+        # Lazy import inside export_onnx resolves the attr at call time.
+        monkeypatch.setattr(oe, "convert_lightgbm_pipeline_double", boom)
+        out = tmp_path / "model.onnx"
+        with pytest.raises(RuntimeError, match="export/parity FAILED"):
+            export_onnx(artifact, out)
+
+    def test_lightgbm_fidelity_failure_raises(self, artifact, tmp_path, monkeypatch):
+        import pipeline.onnx_export as oe
+
+        # Real conversion succeeds, but the parity check reports a mismatch →
+        # the hard gate must turn that into a stage failure.
+        monkeypatch.setattr(
+            oe,
+            "parity_report",
+            lambda *a, **k: {"probability_mae": 1.0, "label_agreement": 0.5},
+        )
+        out = tmp_path / "model.onnx"
+        with pytest.raises(RuntimeError, match="export/parity FAILED"):
+            export_onnx(artifact, out)
+
+    def test_non_gated_type_softens_to_empty_bytes(
+        self, artifact, tmp_path, monkeypatch
+    ):
+        skl2onnx = pytest.importorskip("skl2onnx")
+
+        def boom(*a, **k):
+            raise RuntimeError("skl2onnx cannot convert this")
+
+        monkeypatch.setattr(skl2onnx, "convert_sklearn", boom)
+        # Same artifact, but a non-gated model_type → failure is logged, not raised.
+        soft = {**artifact, "model_type": "random_forest"}
+        out = tmp_path / "model.onnx"
+        export_onnx(soft, out)  # must NOT raise
+        assert out.read_bytes() == b""

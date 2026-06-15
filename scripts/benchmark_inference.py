@@ -121,6 +121,11 @@ def run(argv: list[str] | None = None) -> int:
     parser.add_argument("--n", type=int, default=3000, help="single-sample iterations")
     parser.add_argument("--batch", type=int, default=256, help="throughput batch size")
     parser.add_argument("--reps", type=int, default=200, help="throughput repetitions")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit non-zero if ONNX fidelity fails (use as a release gate)",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -225,6 +230,9 @@ def run(argv: list[str] | None = None) -> int:
 
     _render_figure(result)
     log.info("Wrote %s and %s", OUT_JSON, OUT_FIG)
+    if args.strict and not fidelity_ok:
+        log.error("--strict: failing because ONNX fidelity check did not pass.")
+        return 1
     return 0
 
 
