@@ -1,0 +1,106 @@
+{
+  "cs2cd_vs_gta": [
+    {
+      "feature": "dx",
+      "ks_stat": 0.2669394137655061,
+      "ks_pvalue": 0.0,
+      "ks_drifted": true,
+      "psi": 0.8813980420179897,
+      "psi_severity": "significant",
+      "n_ref": 24990,
+      "n_cur": 200000
+    },
+    {
+      "feature": "dy",
+      "ks_stat": 0.0969650700280112,
+      "ks_pvalue": 3.015506660869699e-182,
+      "ks_drifted": true,
+      "psi": 0.22163458594270835,
+      "psi_severity": "moderate",
+      "n_ref": 24990,
+      "n_cur": 200000
+    },
+    {
+      "feature": "dt",
+      "ks_stat": 0.9507596798719488,
+      "ks_pvalue": 0.0,
+      "ks_drifted": true,
+      "psi": 0.0,
+      "psi_severity": "none",
+      "n_ref": 24990,
+      "n_cur": 200000
+    },
+    {
+      "feature": "is_mouse_click_press",
+      "ks_stat": 0.0013399359743897499,
+      "ks_pvalue": 0.9999999999993548,
+      "ks_drifted": false,
+      "psi": 0.0,
+      "psi_severity": "none",
+      "n_ref": 24990,
+      "n_cur": 200000
+    },
+    {
+      "feature": "is_mouse_move",
+      "ks_stat": 0.053145,
+      "ks_pvalue": 5.6984912330202e-55,
+      "ks_drifted": true,
+      "psi": NaN,
+      "psi_severity": "unknown",
+      "n_ref": 24990,
+      "n_cur": 200000
+    }
+  ],
+  "cs2cd_vs_captcha": [
+    {
+      "feature": "dx",
+      "ks_stat": 0.05245441376550619,
+      "ks_pvalue": 1.4614338737537264e-53,
+      "ks_drifted": true,
+      "psi": 0.08076576102033622,
+      "psi_severity": "none",
+      "n_ref": 24990,
+      "n_cur": 200000
+    },
+    {
+      "feature": "dy",
+      "ks_stat": 0.05756503801520607,
+      "ks_pvalue": 1.9946933850839107e-64,
+      "ks_drifted": true,
+      "psi": 0.06046500824479585,
+      "psi_severity": "none",
+      "n_ref": 24990,
+      "n_cur": 200000
+    },
+    {
+      "feature": "dt",
+      "ks_stat": 0.9991996798719488,
+      "ks_pvalue": 0.0,
+      "ks_drifted": true,
+      "psi": 0.0,
+      "psi_severity": "none",
+      "n_ref": 24990,
+      "n_cur": 200000
+    },
+    {
+      "feature": "is_mouse_click_press",
+      "ks_stat": 0.001039935974389783,
+      "ks_pvalue": 1.0,
+      "ks_drifted": false,
+      "psi": 0.0,
+      "psi_severity": "none",
+      "n_ref": 24990,
+      "n_cur": 200000
+    },
+    {
+      "feature": "is_mouse_move",
+      "ks_stat": 0.0,
+      "ks_pvalue": 1.0,
+      "ks_drifted": false,
+      "psi": NaN,
+      "psi_severity": "unknown",
+      "n_ref": 24990,
+      "n_cur": 200000
+    }
+  ]
+}

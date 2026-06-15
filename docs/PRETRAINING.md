@@ -1,4 +1,4 @@
-# Self-supervised pretraining (Phase 8)
+# Self-supervised pretraining (Phase 8 / 8.1)
 
 > *A small "foundation model for human input motion" — and an honest measurement of why it doesn't
 > (yet) transfer to game-input biometrics.*
@@ -104,6 +104,58 @@ biometrics.**
 3. **A contrastive objective** (Phase 8 stretch goal) — reconstruction is dominated by input
    magnitude (see caveat 1); a contrastive prior would be less magnitude-bound.
 
+## Phase 8.1 — in-domain pretraining (does closing the domain gap rescue the null?)
+
+Phase 8's verdict named two fixes that *should* change it: **(1) match the temporal encoding** and
+**(2) pretrain on an in-domain game-mouse corpus**. Phase 8.1 ran both — and **neither moved the
+needle.**
+
+**Setup.** Pretrain the *same* LSTM-AE **in-domain** on the full public **CS2CD release** (795 matches),
+legit-only (`no_cheater_present`), then transfer to the **same GTA cheat-detection target as Phase 8**
+(directly comparable). Three crossed axes + a captcha comparison source (Phase 8's encoder on the same
+GTA pool) and from-scratch:
+- **Arm:** scratch (A) · **frozen** encoder (B, decoder-only — the condition Phase 8 skipped) · fine-tuned (C).
+- **Source:** `s1` = native CS2 tick `dt` · `s2` = **dt-neutralised** (zeroed in *both* domains) — Phase 8's
+  fix #1. CS2's `dt` is a literal constant, so the naive "resample to the GTA grid" is a no-op after
+  z-scoring; neutralising the channel is the clean causal test of the temporal mismatch.
+- **Pretraining volume:** 50 / 200 / 382 matches. **Step 0** (`scripts/cs2cd_diversity_probe.py`) found
+  the release is **player-anonymised** (`Player_1..10` *per match*, not linkable across matches), so this
+  is a *stream-volume* axis, **not** player diversity — and CS2CD splits are match-disjoint only.
+
+**Result (GTA chunk-AUC, fine-tune budget 15, mean of 3 seeds).** Reference: **scratch = 0.562**. Every
+pretrained config sits **at or below** it:
+
+| source | frozen | fine-tune |
+|---|---|---|
+| captcha (out-of-domain) | 0.557 | 0.557 |
+| cs2cd `s1` @382 (in-domain, native `dt`) | 0.549 | 0.555 |
+| cs2cd `s2` @382 (in-domain, `dt`-neutralised) | 0.553 | 0.559 |
+
+- **In-domain pretraining does not beat scratch** (or captcha) — marginally *worse*.
+- **`s2` ≈ `s1`** → the `dt` mismatch was **not** the binding constraint (fix #1 fails).
+- **Volume 50→200→382 is flat** → more in-domain data doesn't help.
+- **frozen ≤ fine-tune ≤ scratch** → the in-domain embedding carries no transferable structure for the task.
+
+**Why — the domain-gap re-run, CS2CD-as-reference** (`domain_gap_report.py --reference cs2cd`): in-domain
+CS2 is **not** closer to GTA than captcha was. Its spatial gap is *worse* (`dx` PSI **0.88** vs captcha's
+0.37) and the temporal gap persists (`dt` KS **0.95** — CS2's fixed tick is as mismatched to GTA's
+event-driven `dt` as captcha's was; `dt` PSI degenerates to 0 on the constant channel, so KS is the
+honest metric there). The in-domain corpus simply isn't on the GTA manifold.
+
+**Verdict — the null is deeper than the domain gap** (pre-registered outcome (b)). Closing the domain gap
+*and* removing the temporal mismatch both leave transfer unchanged. The binding constraint is the
+**task/data regime**, not the corpus: the real-cheat GTA chunk signal is weak (~0.56 — the same ceiling
+scratch reaches) and lives in obvious per-event anomalies, not a learnable motion *prior*, so no
+pretraining flavour helps at N≈18 sessions / 3 players. The one Phase-8 lever 8.1 did **not** test is a
+**contrastive objective**; the rest of the "what would change the verdict" list is now closed (negative).
+Figure: `reports/figures/phase8_1_indomain_transfer_gta.png`.
+
+Honest scope notes: the player-diversity axis the roadmap hoped for doesn't exist (anonymised release); a
+*player-disjoint* GTA target was tried but floored every arm at chance (cross-player shift dominates at 2
+training players), so the comparable Phase-8 non-disjoint pool is the target; the CS2CD cheat-detection
+sanity arm is omitted (the full release carries no recoverable per-player cheat label — the match-level
+"not-cheater" label is ~56% precise per the dataset card).
+
 ## Reproduce (CUDA desktop)
 
 ```bash
@@ -113,6 +165,12 @@ python -m scripts.domain_gap_report                                  # → repor
 python -m scripts.data_efficiency --domain cs2cd                     # → reports/data_efficiency_cs2cd.json
 python -m scripts.data_efficiency --domain gta
 jupyter nbconvert --to notebook --execute --inplace notebooks/21_pretraining.ipynb   # CPU-fast (loads the above)
+
+# Phase 8.1 — in-domain (CS2CD) pretraining (needs the ~48 GB full-release download)
+python -m scripts.cs2cd_diversity_probe                               # Step-0 gate → PLAYER_THIN verdict
+python -m pipeline.pretraining.cs2cd_full --step all                  # full-release shards (478 legit) + manifest
+python -m scripts.indomain_transfer --phase all --num-workers 6       # 6 encoders + transfer grid + figure
+python -m scripts.domain_gap_report --reference cs2cd                 # → reports/pretraining_domain_gap_cs2cd_ref.json
 ```
 
 `models/pretrained_encoder.pt` is DVC-tracked (`dvc pull` to fetch; `_meta.json` is git-tracked).
