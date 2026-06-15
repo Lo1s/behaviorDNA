@@ -341,9 +341,12 @@ def recorder_mouse_speed_series(
     """Recorder-side motion signal: mouse speed (px/s) on a uniform grid.
 
     ``events`` is a recorder session's ``events`` list (dicts with ``t`` ms and,
-    for ``mouse_move``, ``dx``/``dy``). Time axis is *recorder seconds* from the
-    session's first event. This is the *cause* we cross-correlate against the
-    demo's :func:`angular_speed_series`.
+    for ``mouse_move``, ``dx``/``dy``). The returned grid is anchored at the **first
+    mouse-move** (``_resample_uniform`` anchors at ``t.min()``), so
+    :func:`estimate_offset_by_xcorr`'s ``offset_s`` is the demo time of the first
+    mouse-move. Dual-capture joins correct that back to the window anchor — see
+    ``pipeline.outcome.dual_capture.ingest_dual_capture``. This is the *cause* we
+    cross-correlate against the demo's :func:`angular_speed_series`.
     """
     t_ms, speed = [], []
     prev_t = None
