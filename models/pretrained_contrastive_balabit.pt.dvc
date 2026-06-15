@@ -1,0 +1,5 @@
+outs:
+- md5: 434f14074942eb1ab2b94805300cd230
+  size: 789269
+  hash: md5
+  path: pretrained_contrastive_balabit.pt

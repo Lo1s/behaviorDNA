@@ -1,0 +1,59 @@
+{
+  "corpus": "balabit",
+  "task": "session-level verification EER (challenge protocol)",
+  "note": "compare contrastive vs random (did it learn identity?) and vs the hand-feature baseline (0.144). noscale tests whether scale-invariant augmentation discards identity's magnitude cues. Lower EER = better.",
+  "eval_stride": 64,
+  "results": {
+    "random": {
+      "cosine": {
+        "session_eer_mean": 0.33848797250859103,
+        "session_eer_std": 0.008761201913389659
+      },
+      "classifier": {
+        "session_eer_mean": 0.2553503849667232,
+        "session_eer_std": 0.005483276675762262
+      }
+    },
+    "contrastive_balabit": {
+      "cosine": {
+        "session_eer": 0.3012658227848101,
+        "n_genuine": 395,
+        "n_impostor": 388
+      },
+      "classifier": {
+        "session_eer": 0.25,
+        "n_genuine": 395,
+        "n_impostor": 388
+      }
+    },
+    "contrastive_balabit_noscale": {
+      "cosine": {
+        "session_eer": 0.29873417721518986,
+        "n_genuine": 395,
+        "n_impostor": 388
+      },
+      "classifier": {
+        "session_eer": 0.25,
+        "n_genuine": 395,
+        "n_impostor": 388
+      }
+    },
+    "contrastive_cs2cd_382": {
+      "cosine": {
+        "session_eer": 0.40253164556962023,
+        "n_genuine": 395,
+        "n_impostor": 388
+      },
+      "classifier": {
+        "session_eer": 0.25,
+        "n_genuine": 395,
+        "n_impostor": 388
+      }
+    },
+    "hand_feature_baseline": {
+      "session_eer": 0.13624678663239073,
+      "closed_set_accuracy": 0.603882099209202,
+      "n_users": 10
+    }
+  }
+}

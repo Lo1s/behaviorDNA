@@ -27,6 +27,15 @@ from pipeline.outcome.cs2_demo import (
     tick_to_seconds,
     view_angle_kinematics,
 )
+from pipeline.outcome.dual_capture import (
+    SYNC_STRONG_CORR,
+    SyncResult,
+    ingest_dual_capture,
+    join_input_outcome,
+    most_active_player,
+    recorder_input_windows,
+    sync_recorder_to_demo,
+)
 
 __all__ = [
     "CS2_DEFAULT_TICKRATE",
@@ -39,4 +48,12 @@ __all__ = [
     "recorder_mouse_speed_series",
     "tick_to_seconds",
     "view_angle_kinematics",
+    # dual-capture ingest (Phase 9 — recorder + demo → joined feature table)
+    "SYNC_STRONG_CORR",
+    "SyncResult",
+    "ingest_dual_capture",
+    "join_input_outcome",
+    "most_active_player",
+    "recorder_input_windows",
+    "sync_recorder_to_demo",
 ]

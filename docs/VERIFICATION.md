@@ -1,4 +1,4 @@
-# Verification & identification at scale — public-corpus results (Phase 6)
+# Verification & identification at scale — public-corpus results (Phase 6 / 6.1)
 
 > Produced by [`scripts/run_external_identification.py`](../scripts/run_external_identification.py)
 > → [`reports/external_identification.json`](../reports/external_identification.json)
@@ -71,6 +71,47 @@ Window-level verification EER at 120 users: **0.38**. Open-set (60 enrolled /
    not an identity score. This is precisely the gap **Phase 8 pretraining**
    targets (transfer a human-motion prior so per-user data goes further), and
    it motivates embedding/metric-learning approaches over classifier confidence.
+
+## Phase 6.1 — contrastive embeddings for identity (does the 8.2 lever transfer?)
+
+Phase 8.2 showed a self-supervised **contrastive** objective produces a frozen embedding that beats both
+random-init and reconstruction for *cheat detection*. Point 3 above flagged embedding/metric-learning as the
+natural next move for identity — so we tested it directly: pretrain the same LSTM-AE backbone contrastively
+on Balabit's own mouse motion (NT-Xent over two augmented views, `scripts/contrastive_identity.py`), freeze
+it, embed sessions through the 16-D bottleneck, and score the challenge's session-verification EER two ways —
+**cosine** to the enrolled user, and a **LightGBM** on per-chunk embeddings (the Phase-6 protocol with
+hand-features → embedding). A scale-augmentation ablation (`noscale`) tests whether the scale-invariance 8.2
+*wanted* for cheat detection *discards* the speed/scale cues identity needs.
+
+**Result (Balabit, 10 users, session-EER — lower is better):**
+
+| frozen encoder | cosine EER | classifier EER |
+|---|---|---|
+| random init | 0.338 ± 0.009 | 0.255 ± 0.005 |
+| contrastive (in-domain) | 0.301 | 0.250 |
+| contrastive, no scale-aug | 0.299 | 0.250 |
+| contrastive cs2cd (8.2, cross-domain) | 0.403 | 0.250 |
+| **hand-crafted features (Phase 6)** | — | **0.136** |
+
+**Verdict — a clean null; the 8.2 lever does *not* transfer to identity.** Three reads:
+- **Learned embeddings ≈ random projections.** Every 16-D embedding hits the same ~0.25 classifier-EER — the
+  contrastive encoder is statistically tied with *random init* (0.255 ± 0.005). The only learning signal is a
+  modest cosine-route gain over random (0.34 → 0.30).
+- **Hand features win, ~2×.** The 25 hand-crafted features (0.136) roughly halve the EER of any learned
+  embedding — at this scale, domain-informed features beat self-supervised representations for identity
+  (echoing the project's "capacity isn't the bottleneck / the data budget binds" findings).
+- **The scale hypothesis is *not* supported.** `noscale` ≈ `scale` (0.299 vs 0.301) — removing scale-aug
+  changes nothing, so the bottleneck isn't scale-invariance. The more basic reason: *augmentation*-contrastive
+  self-supervision learns *augmentation-invariance*, which is orthogonal to *user-discrimination*. And the
+  cross-domain 8.2 game-mouse encoder is *worse* than random (0.403) — no desktop transfer.
+
+The principled next step (not run here) is **supervised / metric contrastive** — positives = chunks from the
+*same user* rather than augmented views — which targets identity directly. Aside: a **random** LSTM embedding
+already verifies at ~0.25 EER (the "random-features" effect — mouse-motion sequences are identity-rich enough
+that random projections + a classifier separate 10 users well below chance), so "beat random" is the
+meaningful bar the self-supervised contrastive objective fails to clear. Outputs:
+`reports/contrastive_identity.json` + `reports/figures/phase6_1_contrastive_identity.png`; code
+`scripts/contrastive_identity.py` + `pipeline/external/sequences.py`; tests `tests/test_contrastive_identity.py`.
 
 ## Protocol notes
 

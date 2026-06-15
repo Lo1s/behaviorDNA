@@ -331,6 +331,46 @@ session, and (belt-and-braces) do **one large, deliberate flick at a scripted
 moment** near the start to give the cross-correlation an unambiguous spike to lock
 onto. Offline / `-insecure` only for anything `cheat_sim`-related ([docs/ETHICS.md](ETHICS.md)).
 
-**Next (when dual-capture data lands):** wire `OUTCOME_FEATURE_COLS` into a
+### Dual-capture ingest pipeline (built) + capture runbook
+
+The spike's primitives are now wrapped into a single entrypoint,
+`pipeline/outcome/dual_capture.py` (+ CLI `python -m scripts.ingest_dual_capture`),
+that turns one dual-capture session into a **clock-synced, window-joined** table —
+input features ⨝ outcome features on `(session_id, window_idx)` — ready for the
+supervised detector. `ingest_dual_capture(recorder_json, demo_dem)`:
+
+1. **Input side** — reuses the production feature path verbatim (`parse_events` +
+   `process_session_windows`), so the window grid + the 30 input features match the
+   DVC pipeline exactly.
+2. **Sync** — cross-correlates recorder mouse motion vs demo view-angle motion
+   (`estimate_offset_by_xcorr`), then **corrects the offset back to the window
+   anchor** (`min(t)` over *all* events, not the first mouse-move) so the two
+   `window_idx` grids align exactly — the join's one correctness subtlety.
+3. **Outcome side** — `aggregate_outcome_windows` at the corrected offset.
+4. **Join** — left-join (every input window kept); `has_outcome` marks demo
+   coverage (filter *combat* windows via `shots_fired > 0`). Returns a `SyncResult`
+   carrying `peak_corr` + a STRONG/WEAK verdict; a WEAK sync is logged and means
+   the join may be window-shifted.
+
+Validated end-to-end against the public demo with a synthetic recorder mirroring its
+view-angle motion (`tests/test_dual_capture.py::test_ingest_on_real_demo_with_synthetic_recorder`):
+`peak_corr ≈ 1.0`, 31 windows joined, 46 columns. (The one number a real
+simultaneous capture still has to confirm remains the *cross-device* `peak_corr`.)
+
+**Capture runbook (when you record a real session):**
+1. Start the BehaviorDNA recorder.
+2. In the CS2 console, `record <name>` (or rely on a Valve MM / SourceTV demo).
+3. Near the start, do **one large, deliberate flick** at a scripted moment — it
+   gives the cross-correlation an unambiguous spike to lock onto.
+4. Play a combat-dense session; stop the demo (`stop`) and the recorder together.
+5. `python -m scripts.ingest_dual_capture --recorder <session>.json --demo <name>.dem
+   --player "<you>" --tickrate 64 --out reports/dual_capture_<name>.parquet` →
+   check the printed `peak_corr` / verdict before trusting the join.
+
+Anything `cheat_sim`-related is **offline / `-insecure` only** ([docs/ETHICS.md](ETHICS.md)).
+
+**Still data-gated (the modeling payoff):** wire `OUTCOME_FEATURE_COLS` into a
 supervised cheat detector (notebook 16's D2 lever) and re-attempt the Phase 4.1
-session-level aggregator on data that can actually support it.
+session-level aggregator — both **await real dual-capture sessions** (and cheat
+positives need offline `cheat_sim` capture). The ingest pipeline above is what those
+sessions run through; only the detector itself waits for the data.
