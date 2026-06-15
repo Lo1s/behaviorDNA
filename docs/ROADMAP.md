@@ -496,6 +496,53 @@ didn't move past ~0.56), so this is a **representation-quality** win, not a depl
 
 ---
 
+## Portfolio-review hardening (2026-06-16)
+
+Response to the external review in `PORTFOLIO_REVIEW_2026-06-15.md` — tightening the
+strongest claims so the automation enforces them. **Done this pass:**
+- [x] **H2 — DVC dep completeness.** Added the imported modules (`pipeline/constants.py`,
+  `pipeline/features/run.py`, `pipeline/onnx_export.py`) as stage deps; new
+  `scripts/check_dvc_deps.py` (AST import-closure vs declared deps) gates PRs so the
+  drift can't recur. *(After pulling data, run `dvc commit`/`dvc repro` once to refresh
+  `dvc.lock` for the newly-declared deps.)*
+- [x] **H3 — Streaming/offline feature parity.** Extracted the shared `extract_one_window`
+  (explicit `window_duration_ms`); offline + streaming both call it, fixing the inflated
+  rate features on sparse completed windows. Out-of-order events are now rejected + counted.
+  Parity regression tests for dense/sparse/idle-gap/partial-final.
+- [x] **H4 — Calibration wording.** MODEL_CARD/README now say served probabilities are raw
+  `predict_proba` (uncalibrated); `/health` exposes `"calibrated": false`. (Persisting a
+  calibrator is deferred — the 46-window val fold is too small.)
+- [x] **H5 — ONNX hard gate.** LightGBM export/parity failures now fail the train stage
+  (no silent empty `model.onnx`); `benchmark_inference --strict` exits non-zero on fidelity fail.
+- [x] **H1 (classical) — Held-out base-session benchmark.** `run_benchmark_heldout` +
+  `--heldout` → `reports/adversarial_benchmark_heldout.json` (scaler+detectors fit on
+  train-legit only; repeated-split 95% CIs). Result: classical window features are **at
+  chance held-out** for every cheat type — the honest version that motivates the LSTM-AE.
+  In-sample `run_benchmark` relabelled a diagnostic.
+- [x] **M6 / H6 — claim wording.** Narrowed the "bootstrap CI on every headline number"
+  claim to identification; corrected the "all CI-tested" line to reflect that the full
+  `dvc repro` is main-only (PRs run tests + lint + doc/DVC-dep gates).
+
+**Backlog (acknowledged, not yet done):**
+- [ ] **H1 (LSTM) — held-out chunk benchmark.** Retrain the autoencoder on *train* base
+  sessions only and re-score held-out bases, so the headline chunk AUCs (0.79/0.93) are
+  held-out too (currently the legit baseline includes the AE's training sessions —
+  labelled in-sample). Needs an AE retrain per split.
+- [ ] **M1 — pickle trust boundary.** Document the artifact trust boundary; consider
+  signed/skops artifacts + checksums for DVC-pulled serving files.
+- [ ] **M2 — API input validation.** Finite-float Pydantic constraints, reject extra/NaN/inf
+  fields, validate WS event schemas, add body/rate limits if ever public.
+- [ ] **M3 — ingestion robustness.** Append session metadata only after `events_df` is
+  non-empty; treat zero-valid-events as a hard validation failure; `--strict` in CI.
+- [ ] **M4 — dependency lock.** Add a `pip-tools`/`uv` lock or constraints file + `pip check`
+  in CI for reproducible serialization (sklearn/LightGBM/ONNX).
+- [ ] **M5 — startup integration test.** One `TestClient(app)` lifespan test exercising the
+  real pickle/bundle load (current tests inject `app.state` directly).
+- [ ] **M7 — promotion gate.** `promote_model.py` should require a manifest (version, data
+  version, metrics, ONNX parity, calibration status) + min-threshold / CI-overlap guard.
+
+---
+
 ## Data dependency map
 
 | Phase | Needs real recordings? | Can start before recordings arrive? |

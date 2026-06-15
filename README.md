@@ -34,10 +34,10 @@
 
 ## Highlights — what this demonstrates
 
-- **End-to-end MLOps on *real* data:** custom Windows telemetry recorder → DVC pipeline → training → calibration → drift monitoring → MLflow model registry → FastAPI + ONNX serving + Streamlit dashboard, all CI-tested (**485 tests**).
+- **End-to-end MLOps on *real* data:** custom Windows telemetry recorder → DVC pipeline → training → calibration → drift monitoring → MLflow model registry → FastAPI + ONNX serving + Streamlit dashboard. Every PR runs the unit suite (**506 tests**) + lint + the generated-doc/DVC-dependency gates; the full `dvc repro` runs on `main` (it needs the data secret) — see [CI](.github/workflows/ci.yml).
 - **Deep model where it earns its place:** a sequence autoencoder detects cheats hand-crafted features can't (triggerbot **0.94** chunk AUC vs aimbot **≈ chance** for window features) — and it **transfers to a second game** (Counter-Strike 2, ~0.72) on data I didn't create.
-- **Honest validation over flattering numbers:** found, root-caused and **fixed a real ONNX serving-fidelity bug** (float32 precision flipping an overfit model's predictions — now a bit-faithful float64 export behind a CI regression gate, [finding #7](docs/FINDINGS.md)); *verified* (not assumed) a session-level detection ceiling before building on it; an **ablation** showing the model is over-parameterised at this N; an **architecture study** finding LSTM/TCN/Transformer statistically tied; every headline number ships with a **bootstrap CI**.
-- **Anti-cheat framing throughout:** false-positive/ban-cost reasoning, calibrated probabilities (ECE/Brier), and deliberate, audited model promotion — see the **[Model Card](MODEL_CARD.md)**.
+- **Honest validation over flattering numbers:** found, root-caused and **fixed a real ONNX serving-fidelity bug** (float32 precision flipping an overfit model's predictions — now a bit-faithful float64 export behind a CI regression gate, [finding #7](docs/FINDINGS.md)); *verified* (not assumed) a session-level detection ceiling before building on it; an **ablation** showing the model is over-parameterised at this N; an **architecture study** finding LSTM/TCN/Transformer statistically tied; every *identification* headline number ships with a **bootstrap CI** (cheat-detection chunk AUCs are point estimates, and the held-out classical benchmark adds repeated-split CIs — [docs/ADVERSARIAL.md](docs/ADVERSARIAL.md#held-out-base-session-benchmark-classical-features)).
+- **Anti-cheat framing throughout:** false-positive/ban-cost reasoning, *measured* probability calibration (ECE/Brier; serving returns raw `predict_proba` — see the Model Card), and deliberate, audited model promotion — see the **[Model Card](MODEL_CARD.md)**.
 
 ---
 

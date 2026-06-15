@@ -150,8 +150,11 @@ check that validates (or bounds) it. → [docs/FINDINGS.md](FINDINGS.md)
   **isotonic** improved Brier (0.275 → 0.224) holding accuracy; **Platt made it
   worse** — the small-data fragility you'd predict at 46 calibration windows.
   Reported as found.
-- **5.5 Bootstrap CIs on every headline number** (e.g. the 0.74–0.97 above), so the
-  reader sees the uncertainty the small N implies rather than a bare point estimate.
+- **5.5 Bootstrap CIs on every *identification* headline number** (e.g. the
+  0.74–0.97 above), so the reader sees the uncertainty the small N implies rather
+  than a bare point estimate. (Cheat-detection chunk AUCs are reported as point
+  estimates; the held-out classical benchmark, §finding H1, adds repeated-split
+  intervals.)
 - **5.6 Serving-fidelity bug — found → root-caused → fixed → CI-gated.** The shipped
   ONNX model was numerically unfaithful (probability MAE **0.27**, ~38% labels
   flipped). The cause was *not* a converter bug: float32 standardisation perturbs
