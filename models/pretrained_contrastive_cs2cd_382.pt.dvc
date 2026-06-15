@@ -1,0 +1,5 @@
+outs:
+- md5: aef070c3f81de30fcb014f7158993277
+  size: 789269
+  hash: md5
+  path: pretrained_contrastive_cs2cd_382.pt

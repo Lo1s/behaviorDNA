@@ -1,0 +1,5 @@
+outs:
+- md5: 089dc8942eab48005d6c63f007997624
+  size: 789269
+  hash: md5
+  path: pretrained_contrastive_captcha.pt
