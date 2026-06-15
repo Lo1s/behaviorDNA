@@ -46,6 +46,12 @@ jobs:
         # if a doc number drifted (the README "340+" / CLAUDE "~372" problem).
         run: python -m scripts.generate_metadata --check
 
+      - name: DVC stage deps cover their import closure
+        # Static guard (no data needed, so it runs on PRs unlike dvc-repro):
+        # fails if a stage's entrypoint imports a first-party module that is not
+        # a declared dep — which would let `dvc repro` reuse stale artifacts.
+        run: python -m scripts.check_dvc_deps --check
+
   dvc-repro:
     runs-on: ubuntu-latest
     needs: lint-and-test

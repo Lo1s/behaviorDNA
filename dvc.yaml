@@ -12,6 +12,7 @@ stages:
     cmd: python -m pipeline.features.run
     deps:
       - pipeline/features/run.py
+      - pipeline/constants.py
       - data/processed/sessions.parquet
       - data/processed/events.parquet
     outs:
@@ -32,6 +33,9 @@ stages:
     cmd: python -m pipeline.training.run
     deps:
       - pipeline/training/run.py
+      - pipeline/constants.py
+      - pipeline/features/run.py
+      - pipeline/onnx_export.py
       - data/splits/train.parquet
       - data/splits/val.parquet
       - configs/training.yaml
@@ -46,6 +50,8 @@ stages:
     cmd: python -m pipeline.evaluation.run
     deps:
       - pipeline/evaluation/run.py
+      - pipeline/features/run.py
+      - pipeline/constants.py
       - models/model.pkl
       - data/splits/test.parquet
       - configs/training.yaml
