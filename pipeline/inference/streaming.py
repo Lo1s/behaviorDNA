@@ -16,9 +16,12 @@ demo). It maintains:
   combined score.
 
 The engine is in-memory only and assumes events arrive monotonically by
-``t`` within a session. Out-of-order events are tolerated but window
-boundaries are decided by the timestamp of the *first* arrived event,
-not wall-clock time — so this is fundamentally an event-driven engine.
+``t`` within a session. Out-of-order events (a ``t`` strictly less than the
+last seen ``t``) are *rejected* and counted in ``dropped_out_of_order``: once
+a window is flushed its events are pruned from the buffer, so a late event for
+an already-closed window cannot be scored correctly. Window boundaries are
+decided by event timestamps, not wall-clock time — so this is fundamentally an
+event-driven engine.
 
 Output: every ``push_event(event)`` call returns either ``None`` (no new
 scores yet) or a ``ScoreUpdate`` carrying the latest per-detector and
@@ -42,8 +45,8 @@ from pipeline.adversarial.benchmark import _build_detectors, load_synthetic_feat
 from pipeline.constants import WINDOW_MS
 from pipeline.features.run import (
     CHEAT_FEATURE_COLS,
+    extract_one_window,
     polling_rate_norm,
-    process_session_windows,
 )
 from pipeline.inference.aggregator import RiskAggregator
 
@@ -107,33 +110,62 @@ def compute_window_feature_row(
     w_end: float,
     norm_factor: float,
     rate_norm: float,
+    *,
+    full_window: bool = True,
 ) -> Optional[dict]:
     """Events in [w_start, w_end) → one classical feature-row dict (or None).
 
-    Mirrors the offline feature pipeline exactly. Returns None when the window
-    has fewer than 2 events: ``process_session_windows`` divides by the window
-    span (t_max − t_anchor), so a single-event window has zero duration.
+    Shares the exact offline extractor (``extract_one_window``) so a live window
+    row is byte-for-byte identical to the offline row for the same events. The
+    previous implementation delegated to ``process_session_windows`` on a
+    re-anchored mini-frame, which rated sparse windows against the *observed*
+    event span (t_max − first_event) rather than the full window — inflating
+    rate features (review finding H3: offline ``event_rate`` 1.0 vs streaming
+    1.034 on a 1 ev/s, 30 s window).
+
+    ``full_window`` selects the rate denominator:
+      - ``True``  — a fully-elapsed window (flushed because a later event crossed
+        ``w_end``): rate against the full ``w_end − w_start`` (= ``WINDOW_MS``),
+        regardless of how sparse the events are.
+      - ``False`` — the trailing partial window (flushed at ``finalize()``): rate
+        against the observed span ``min(w_end − w_start, max(t) − w_start)``,
+        mirroring the offline final-window duration.
+
+    Returns None when the window has fewer than 2 events (no span to rate).
     """
     window_events = [e for e in events if w_start <= e.get("t", 0.0) < w_end]
     if len(window_events) < 2:
         return None
-    rows = [
-        {
-            "session_id": "stream",
-            "t": float(ev.get("t", 0.0)),
-            "event_type": ev.get("type", ""),
-            "x": ev.get("x"),
-            "y": ev.get("y"),
-            "dx": ev.get("dx"),
-            "dy": ev.get("dy"),
-            "pressed": ev.get("pressed"),
-            "key": ev.get("key"),
-        }
-        for ev in window_events
-    ]
-    windows = process_session_windows(pd.DataFrame(rows), norm_factor, rate_norm)
-    # One 30s span → one zero-anchored window row.
-    return windows[0] if windows else None
+    df = pd.DataFrame(
+        [
+            {
+                "session_id": "stream",
+                "t": float(ev.get("t", 0.0)),
+                "event_type": ev.get("type", ""),
+                "x": ev.get("x"),
+                "y": ev.get("y"),
+                "dx": ev.get("dx"),
+                "dy": ev.get("dy"),
+                "pressed": ev.get("pressed"),
+                "key": ev.get("key"),
+            }
+            for ev in window_events
+        ]
+    )
+    full_span = float(w_end - w_start)
+    if full_window:
+        window_duration_ms = full_span
+    else:
+        window_duration_ms = min(full_span, float(df["t"].max()) - float(w_start))
+        if window_duration_ms <= 0:
+            return None
+    # window_idx is always 0 for a single-window mini-frame (kept first for the
+    # same column order the offline rows carry).
+    row = {"window_idx": 0}
+    row.update(
+        extract_one_window(df, w_start, window_duration_ms, norm_factor, rate_norm)
+    )
+    return row
 
 
 def score_window_features(
@@ -242,6 +274,8 @@ class SessionStreamState:
         # chunk buffer is already bounded (sliced on every flush).
         self.n_events: int = 0
         self._last_t: Optional[float] = None
+        # Count of rejected out-of-order events (t < last seen t); see push_event.
+        self.dropped_out_of_order: int = 0
         self.window_buffer: list[dict] = []
         self.first_event_t: Optional[float] = None
         self.next_window_end_t: Optional[float] = None
@@ -294,6 +328,22 @@ class SessionStreamState:
         ``{"t": ..., "type": ..., "x": ..., "y": ..., "dx": ..., "dy": ..., ...}``.
         """
         t = float(event.get("t", 0.0))
+
+        # Reject out-of-order events. Window flushes prune the buffer past each
+        # closed window (see below), so a late event for an already-flushed
+        # window can't be scored correctly — drop it (and count it) rather than
+        # silently corrupting the current window. Equal timestamps are kept
+        # (batched events legitimately share a t).
+        if self._last_t is not None and t < self._last_t:
+            self.dropped_out_of_order += 1
+            log.warning(
+                "Dropping out-of-order event (t=%.3f < last=%.3f); %d dropped so far",
+                t,
+                self._last_t,
+                self.dropped_out_of_order,
+            )
+            return None
+
         if self.first_event_t is None:
             self.first_event_t = t
             self.next_window_end_t = t + WINDOW_MS
@@ -346,7 +396,9 @@ class SessionStreamState:
         # already flushed). The partial chunk is deliberately discarded above.
         if self.next_window_end_t is not None and not self._finalized:
             self._flush_window(
-                self.next_window_end_t - WINDOW_MS, self.next_window_end_t
+                self.next_window_end_t - WINDOW_MS,
+                self.next_window_end_t,
+                full_window=False,
             )
             self._finalized = True
         return self._build_update(t, triggered_by="finalize")
@@ -355,11 +407,23 @@ class SessionStreamState:
     # Internals
     # -------------------------------------------------------------------
 
-    def _flush_window(self, w_start: float, w_end: float) -> None:
-        """Score the completed window: delegate feature extraction + scoring,
-        then fold the result into running session state."""
+    def _flush_window(
+        self, w_start: float, w_end: float, *, full_window: bool = True
+    ) -> None:
+        """Score a window: delegate feature extraction + scoring, then fold the
+        result into running session state.
+
+        ``full_window`` is True for a fully-elapsed window (rate against the full
+        30 s) and False for the trailing partial window flushed at ``finalize``
+        (rate against the observed span) — see ``compute_window_feature_row``.
+        """
         feat_row = compute_window_feature_row(
-            self.window_buffer, w_start, w_end, self.norm_factor, self.rate_norm
+            self.window_buffer,
+            w_start,
+            w_end,
+            self.norm_factor,
+            self.rate_norm,
+            full_window=full_window,
         )
         if feat_row is None:
             return

@@ -540,6 +540,46 @@ def compute_keystroke_periodicity(kp: pd.DataFrame) -> dict:
     return result
 
 
+def extract_one_window(
+    window: pd.DataFrame,
+    w_start: float,
+    window_duration_ms: float,
+    norm_factor: float,
+    rate_norm: float = 1.0,
+) -> dict:
+    """Extract the classical feature row for ONE pre-sliced, non-empty window.
+
+    Single source of truth shared by the offline pipeline
+    (``process_session_windows``) and the live streaming engine
+    (``pipeline.inference.streaming.compute_window_feature_row``). Both pass the
+    window's true ``w_start`` and ``window_duration_ms`` *explicitly* so the two
+    paths produce identical rows. Rate-based features (``event_rate`` etc.) are
+    divided by ``window_duration_ms``, so deriving the duration from the observed
+    event span — as the streaming path used to, via a re-anchored mini-frame —
+    inflates them for sparse windows (portfolio-review finding H3).
+
+    ``window`` must hold only this window's events (already masked to
+    ``[w_start, w_start + WINDOW_MS)``) and be non-empty. ``window_duration_ms``
+    is the span to rate against: ``WINDOW_MS`` for a fully-elapsed window, or the
+    observed partial span for the trailing final window.
+    """
+    mm = window[window["event_type"] == "mouse_move"]
+    mc = window[window["event_type"] == "mouse_click"]
+    kp = window[window["event_type"] == "key_press"]
+    kr = window[window["event_type"] == "key_release"]
+
+    features: dict = {}
+    features.update(compute_mouse_kinematics(mm, mc, norm_factor))
+    features.update(compute_trajectory_features(mm, window_duration_ms, rate_norm))
+    features.update(compute_keyboard_patterns(kp, kr, window_duration_ms))
+    features.update(compute_reaction_features(window))
+    features.update(compute_keystroke_periodicity(kp))
+    features.update(
+        compute_session_aggregates(window, w_start, window_duration_ms, rate_norm)
+    )
+    return features
+
+
 def process_session_windows(
     session_events: pd.DataFrame,
     norm_factor: float,
@@ -584,19 +624,9 @@ def process_session_windows(
             window_idx += 1
             continue
 
-        mm = window[window["event_type"] == "mouse_move"]
-        mc = window[window["event_type"] == "mouse_click"]
-        kp = window[window["event_type"] == "key_press"]
-        kr = window[window["event_type"] == "key_release"]
-
         features = {"window_idx": window_idx}
-        features.update(compute_mouse_kinematics(mm, mc, norm_factor))
-        features.update(compute_trajectory_features(mm, actual_ms, rate_norm))
-        features.update(compute_keyboard_patterns(kp, kr, actual_ms))
-        features.update(compute_reaction_features(window))
-        features.update(compute_keystroke_periodicity(kp))
         features.update(
-            compute_session_aggregates(window, w_start, actual_ms, rate_norm)
+            extract_one_window(window, w_start, actual_ms, norm_factor, rate_norm)
         )
         windows.append(features)
 

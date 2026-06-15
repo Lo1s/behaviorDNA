@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pandas as pd
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -22,12 +23,13 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
 from api.streaming import streaming_router
-from pipeline.features.run import FEATURE_COLS
+from pipeline.features.run import FEATURE_COLS, process_session_windows
 from pipeline.inference.aggregator import RiskAggregator
 from pipeline.inference.streaming import (
     WINDOW_MS,
     ScoreUpdate,
     SessionStreamState,
+    compute_window_feature_row,
 )
 
 # ---------------------------------------------------------------------------
@@ -205,6 +207,137 @@ class TestFinalizePartialBuffers:
         first = state.finalize()
         second = state.finalize()
         assert first.n_windows == second.n_windows == 1  # no double-count
+
+
+# ---------------------------------------------------------------------------
+# Offline ↔ streaming feature parity (review finding H3)
+# ---------------------------------------------------------------------------
+
+
+def _offline_rows(events: list[dict], nf: float = 1.0, rn: float = 1.0) -> list[dict]:
+    """Offline window rows for an event list (mirrors the ingestion frame)."""
+    df = pd.DataFrame(
+        [
+            {
+                "session_id": "s",
+                "t": float(e["t"]),
+                "event_type": e["type"],
+                "x": e.get("x"),
+                "y": e.get("y"),
+                "dx": e.get("dx"),
+                "dy": e.get("dy"),
+                "pressed": e.get("pressed"),
+                "key": e.get("key"),
+            }
+            for e in events
+        ]
+    )
+    return process_session_windows(df, nf, rn)
+
+
+def _streaming_rows(events: list[dict], nf: float = 1.0, rn: float = 1.0) -> list[dict]:
+    """Reconstruct the feature rows the streaming engine produces, window by
+    window, exactly as ``SessionStreamState`` drives ``compute_window_feature_row``:
+    anchor at the first event, full_window=True for any window with a later event,
+    full_window=False for the trailing partial window."""
+    anchor = min(e["t"] for e in events)
+    t_max = max(e["t"] for e in events)
+    rows = []
+    idx = 0
+    while True:
+        w_start = anchor + idx * WINDOW_MS
+        if w_start > t_max:
+            break
+        w_end = w_start + WINDOW_MS
+        has_later = any(e["t"] >= w_end for e in events)
+        row = compute_window_feature_row(
+            events, w_start, w_end, nf, rn, full_window=has_later
+        )
+        if row is not None:
+            row = {**row, "window_idx": idx}
+            rows.append(row)
+        idx += 1
+    return rows
+
+
+def _assert_rows_equal(off: list[dict], strm: list[dict]) -> None:
+    # Only compare windows the streaming path emits (it guards <2-event windows;
+    # offline would otherwise include degenerate 1-event windows). Realistic test
+    # sessions below keep every populated window at >=2 events, so the lists match.
+    assert [r["window_idx"] for r in off] == [r["window_idx"] for r in strm]
+    for r_off, r_str in zip(off, strm):
+        assert set(r_off) == set(r_str)
+        for k in r_off:
+            assert r_str[k] == pytest.approx(
+                r_off[k], nan_ok=True, abs=1e-9
+            ), f"window {r_off['window_idx']} feature {k!r}: off={r_off[k]} strm={r_str[k]}"
+
+
+class TestOfflineParity:
+    """The streaming window features must equal the offline ones bit-for-bit;
+    the prior re-anchored-mini-frame path inflated rate features on sparse
+    windows (offline event_rate 1.0 vs streaming 1.034)."""
+
+    def test_dense_session(self):
+        # 100ms spacing across ~2.2 windows → 2 full + 1 partial-final window.
+        events = [_event(i * 100.0) for i in range(660)]
+        _assert_rows_equal(_offline_rows(events), _streaming_rows(events))
+
+    def test_sparse_completed_window(self):
+        # The reviewer's exact probe: 1 ev/s for 30s (sparse but COMPLETED). Two
+        # boundary-crossing events make window 0 full-width and give window 1 the
+        # >=2 events both paths require (avoids the degenerate 1-event window).
+        events = [_event(i * 1000.0) for i in range(30)]
+        events += [
+            _event(WINDOW_MS + 5.0, "key_press", key="w"),
+            _event(WINDOW_MS + 1005.0),
+        ]
+        off = _offline_rows(events)
+        strm = _streaming_rows(events)
+        _assert_rows_equal(off, strm)
+        # And the headline: a sparse full window rates against 30s, not 29s
+        # (pre-fix the streaming helper produced 1.034 here).
+        assert off[0]["event_rate"] == pytest.approx(1.0, abs=1e-9)
+        assert strm[0]["event_rate"] == pytest.approx(1.0, abs=1e-9)
+
+    def test_idle_gap_session(self):
+        # Window 0 populated, windows 1-2 empty (AFK), window 3 populated.
+        events = [_event(i * 1000.0) for i in range(0, 25)]  # window 0
+        events += [_event(3 * WINDOW_MS + i * 1000.0) for i in range(0, 25)]  # window 3
+        off = _offline_rows(events)
+        strm = _streaming_rows(events)
+        assert [r["window_idx"] for r in off] == [0, 3]  # gap windows skipped
+        _assert_rows_equal(off, strm)
+
+    def test_partial_final_window(self):
+        # Window 0 full, then a short partial window 1 (a few events, no boundary
+        # crossed) → exercises the full_window=False (finalize) duration path.
+        events = [_event(i * 500.0) for i in range(0, 61)]  # fills window 0 (0..30s)
+        events += [_event(WINDOW_MS + i * 1000.0) for i in range(0, 5)]  # partial w1
+        off = _offline_rows(events)
+        strm = _streaming_rows(events)
+        _assert_rows_equal(off, strm)
+
+
+class TestOutOfOrderRejection:
+    """Out-of-order events are rejected and counted (H3), not silently folded
+    into the current window."""
+
+    def test_decreasing_timestamp_is_dropped(self):
+        state = _stream_state(chunk_length=8)
+        assert state.push_event(_event(1000.0)) is None
+        assert state.push_event(_event(2000.0)) is None
+        # An event in the past is rejected (returns None, counter increments).
+        assert state.push_event(_event(1500.0)) is None
+        assert state.dropped_out_of_order == 1
+        assert state.n_events == 2  # the late event was not ingested
+
+    def test_equal_timestamp_is_kept(self):
+        state = _stream_state(chunk_length=8)
+        state.push_event(_event(1000.0))
+        state.push_event(_event(1000.0))  # batched same-t event is fine
+        assert state.dropped_out_of_order == 0
+        assert state.n_events == 2
 
 
 # ---------------------------------------------------------------------------
