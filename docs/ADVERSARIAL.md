@@ -85,6 +85,17 @@ The dataset generator (`pipeline.adversarial.generate_dataset`) produces 6 varia
 - Detection rate at FPR ≤ 5 %
 - Mean anomaly score per class
 
+> **In-sample vs held-out (review finding H1).** The default `run_benchmark`
+> (and the per-type tables below) is an **in-sample** diagnostic: the scaler is
+> fit on *all* rows (legit **and** cheat), the detectors on *all* legit rows,
+> and those same legit rows are the negative baseline. That measures how
+> separable a perturbation is *in the fitted data* — an approach/sanity proof,
+> **not** a generalisation number. The held-out counterpart
+> (`run_benchmark_heldout`, `python -m pipeline.adversarial.benchmark --heldout`
+> → `reports/adversarial_benchmark_heldout.json`) splits **base recordings**,
+> fits scaler + detectors on the *train* split's legit rows only, and reports a
+> repeated-split 95% interval — see [Held-out base-session benchmark](#held-out-base-session-benchmark-classical-features) below.
+
 ---
 
 ## Results
@@ -149,6 +160,32 @@ The **Combined (aggregator) row is *below* chance for aimbot (0.42)** — it doe
 
 The mock numbers looked *higher* on triggerbot/macro because mock "legit" (idle desktop mouse) is trivially distinguishable from injected cheats; real gameplay is a harder, more honest baseline.
 </details>
+
+### Held-out base-session benchmark (classical features)
+
+The tables above are **in-sample** (see the note under *Benchmark*). The held-out
+counterpart (`--heldout`) splits the 18 base recordings, fits the scaler **and**
+detectors on the train split's legit rows only, and evaluates held-out legit vs
+held-out cheat variants per type, over 20 repeated 60/40 splits
+(`reports/adversarial_benchmark_heldout.json`):
+
+| Detector | aimbot | macro | triggerbot |
+|---|---|---|---|
+| IsolationForest | 0.50 [0.47–0.51] | 0.49 [0.46–0.52] | 0.43 [0.33–0.51] |
+| LocalOutlierFactor | 0.49 [0.46–0.52] | 0.51 [0.50–0.53] | 0.49 [0.37–0.60] |
+| OneClassSVM | 0.50 [0.48–0.52] | 0.50 [0.48–0.52] | 0.48 [0.27–0.59] |
+
+*(ROC AUC, mean [2.5–97.5 percentile over splits]; per-session-max aggregation.)*
+
+**Read:** out-of-sample, the classical window features are **at chance for every
+cheat type** — the intervals straddle 0.50. This is the honest version of the
+in-sample tables (where leakage and per-session-max on the fitted data can nudge
+triggerbot up): hand-crafted *window* aggregates simply don't carry the
+short-burst cheat signal once you can't peek at the test sessions. It is exactly
+the result that motivates the **chunk-level LSTM-AE** (aimbot 0.79, triggerbot
+0.93 on the same real sessions) — the gap is the aggregation window, not the
+detector family. A held-out *LSTM-AE* number (retrain the autoencoder on train
+bases only) is tracked in [ROADMAP](ROADMAP.md) as the remaining H1 step.
 
 ## What closes the gap
 

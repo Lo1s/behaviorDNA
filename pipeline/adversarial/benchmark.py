@@ -283,6 +283,14 @@ def run_benchmark(
 ) -> pd.DataFrame:
     """Train each detector on legit-only rows, score per cheat type.
 
+    ⚠️ **In-sample diagnostic, not a held-out generalisation test** (review
+    finding H1): the ``StandardScaler`` is fit on *all* rows (legit **and**
+    cheat), the detectors are fit on *all* legit rows, and those same legit rows
+    are then the negative baseline. The resulting AUCs measure how separable the
+    perturbation is *in the data the detector was fit on* — an approach/sanity
+    proof. For a true generalisation number use ``run_benchmark_heldout``, which
+    splits base recordings and fits only on the train split.
+
     ``aggregation`` controls evaluation granularity:
       - ``"session_max"`` (default): collapse a session's per-window scores to
         their max, then evaluate per session. Matches production anti-cheat,
@@ -340,6 +348,188 @@ def run_benchmark(
                 )
 
     return pd.DataFrame([r.__dict__ for r in rows])
+
+
+# ---------------------------------------------------------------------------
+# Held-out base-session benchmark (review finding H1)
+# ---------------------------------------------------------------------------
+
+# Cheat-variant filename suffixes written by generate_dataset as
+# ``<base_stem>_<suffix>.json``. inject_cheat() assigns every cheat variant a
+# fresh UUID session_id, so session_id does NOT group the variants of one base
+# recording — the *filename stem* does. Held-out evaluation must split on this
+# base key so no base recording appears in both train and test.
+_VARIANT_SUFFIXES = (
+    "legit",
+    "aimbot_obvious",
+    "aimbot_medium",
+    "aimbot_soft",
+    "triggerbot",
+    "macro",
+)
+
+
+def base_session_key(source_file: str) -> str:
+    """Map a synthetic filename to its base recording key.
+
+    ``<base>_<variant>.json`` → ``<base>`` (robust to underscores in ``<base>``,
+    since only the known variant suffixes are stripped).
+    """
+    stem = source_file[:-5] if source_file.endswith(".json") else source_file
+    for suffix in _VARIANT_SUFFIXES:
+        if stem.endswith("_" + suffix):
+            return stem[: -(len(suffix) + 1)]
+    return stem
+
+
+def bootstrap_auc_ci(
+    y_true: np.ndarray,
+    scores: np.ndarray,
+    n_boot: int = 1000,
+    seed: int = 0,
+) -> tuple[float, float]:
+    """95% percentile bootstrap CI for ROC AUC, robust to degenerate resamples.
+
+    Resamples (label, score) pairs with replacement; a resample that lands on a
+    single class has an undefined AUC and is skipped. Returns (nan, nan) with
+    fewer than 2 valid resamples. (``pipeline.evaluation.bootstrap_ci`` is for
+    accuracy/F1 and does not guard the single-class case AUC needs.)
+    """
+    y_true = np.asarray(y_true)
+    scores = np.asarray(scores)
+    rng = np.random.default_rng(seed)
+    n = len(y_true)
+    stats: list[float] = []
+    for _ in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        yb = y_true[idx]
+        if yb.min() == yb.max():
+            continue
+        stats.append(roc_auc_score(yb, scores[idx]))
+    if len(stats) < 2:
+        return float("nan"), float("nan")
+    return float(np.percentile(stats, 2.5)), float(np.percentile(stats, 97.5))
+
+
+def run_benchmark_heldout(
+    features_df: pd.DataFrame,
+    n_repeats: int = 20,
+    test_fraction: float = 0.4,
+    fpr_threshold: float = 0.05,
+    detectors: dict | None = None,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Held-out base-session cheat benchmark — the generalisation counterpart to
+    the in-sample ``run_benchmark`` (review finding H1).
+
+    For each of ``n_repeats`` random splits it holds out ``test_fraction`` of the
+    **base recordings** (``base_session_key``), fits the ``StandardScaler`` and
+    every detector on the *train* split's legit rows **only**, then scores the
+    held-out legit (negatives) against the held-out cheat variants (positives),
+    per cheat type, with per-session-max aggregation. No base recording — and
+    therefore none of a cheat's underlying legit signal — is shared between train
+    and test. AUCs are summarised by their mean and a repeated-split 95%
+    interval, so the small-N uncertainty is explicit.
+
+    Returns one row per (detector, cheat_label): ``roc_auc_mean`` / ``roc_auc_lo``
+    / ``roc_auc_hi`` plus split bookkeeping.
+    """
+    if detectors is None:
+        detectors = _build_detectors()
+
+    df = features_df.copy()
+    df["base_session"] = df["cheat_source_file"].map(base_session_key)
+    bases = np.array(sorted(df["base_session"].unique()))
+    cheat_labels = sorted(set(df["cheat_label"]) - {CHEAT_LEGIT})
+    if len(bases) < 2 or not cheat_labels:
+        raise RuntimeError(
+            f"Held-out eval needs >=2 base sessions and >=1 cheat label "
+            f"(got {len(bases)} bases, {len(cheat_labels)} cheat labels)."
+        )
+
+    rng = np.random.default_rng(seed)
+    n_test = max(1, min(len(bases) - 1, round(len(bases) * test_fraction)))
+
+    feat = CHEAT_FEATURE_COLS
+    auc_samples: dict[tuple[str, str], list[float]] = defaultdict(list)
+    detrate_samples: dict[tuple[str, str], list[float]] = defaultdict(list)
+    n_test_cheat: dict[str, list[int]] = defaultdict(list)
+    train_sizes: list[int] = []
+    test_legit_sizes: list[int] = []
+
+    for _ in range(n_repeats):
+        perm = rng.permutation(bases)
+        test_bases = set(perm[:n_test].tolist())
+
+        # train = every base not held out for test (no base spans both splits)
+        is_test = df["base_session"].isin(test_bases)
+        is_legit = df["cheat_label"].eq(CHEAT_LEGIT)
+        train_legit = df[(~is_test) & is_legit]
+        test_legit = df[is_test & is_legit]
+        if train_legit.empty or test_legit.empty:
+            continue
+
+        scaler = StandardScaler().fit(train_legit[feat].fillna(0.0).to_numpy())
+        train_X = scaler.transform(train_legit[feat].fillna(0.0).to_numpy())
+        legit_test_X = scaler.transform(test_legit[feat].fillna(0.0).to_numpy())
+        legit_test_sess = test_legit["session_id"].to_numpy()
+        train_sizes.append(int(train_legit["session_id"].nunique()))
+        test_legit_sizes.append(int(test_legit["session_id"].nunique()))
+
+        for name, detector in detectors.items():
+            detector.fit(train_X)  # fit on train-legit ONLY (no cheat, no test)
+            for cheat_label in cheat_labels:
+                test_cheat = df[is_test & df["cheat_label"].eq(cheat_label)]
+                if test_cheat.empty:
+                    continue
+                cheat_test_X = scaler.transform(test_cheat[feat].fillna(0.0).to_numpy())
+                y_true, scores = _session_scores(
+                    detector,
+                    legit_test_X,
+                    cheat_test_X,
+                    legit_test_sess,
+                    test_cheat["session_id"].to_numpy(),
+                )
+                if y_true.min() == y_true.max():
+                    continue  # need both classes for AUC
+                try:
+                    auc = roc_auc_score(y_true, scores)
+                except ValueError:
+                    continue
+                auc_samples[(name, cheat_label)].append(float(auc))
+                detrate_samples[(name, cheat_label)].append(
+                    _detection_rate_at_fpr(y_true, scores, fpr_threshold)
+                )
+                n_test_cheat[cheat_label].append(int((y_true == 1).sum()))
+
+    rows = []
+    for (name, cheat_label), aucs in sorted(auc_samples.items()):
+        arr = np.asarray(aucs, dtype=float)
+        lo, hi = (
+            (float(np.percentile(arr, 2.5)), float(np.percentile(arr, 97.5)))
+            if arr.size >= 2
+            else (float("nan"), float("nan"))
+        )
+        rows.append(
+            {
+                "detector": name,
+                "cheat_label": cheat_label,
+                "roc_auc_mean": float(arr.mean()) if arr.size else float("nan"),
+                "roc_auc_lo": lo,
+                "roc_auc_hi": hi,
+                "detection_rate_at_fpr_mean": float(
+                    np.nanmean(detrate_samples[(name, cheat_label)])
+                ),
+                "fpr_threshold": fpr_threshold,
+                "n_valid_splits": int(arr.size),
+                "n_test_cheat_sessions_median": (
+                    int(np.median(n_test_cheat[cheat_label]))
+                    if n_test_cheat[cheat_label]
+                    else 0
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def compute_roc_curves(
@@ -1157,6 +1347,51 @@ def run(include_lstm_ae: bool = True) -> None:
     log.info("\n%s", _format_summary(results))
 
 
+def run_heldout(
+    synthetic_dir: Path = SYNTHETIC_DIR,
+    n_repeats: int = 20,
+    test_fraction: float = 0.4,
+    out_path: Path | None = None,
+) -> pd.DataFrame:
+    """Run the held-out base-session classical benchmark and write its report.
+
+    Writes ``reports/adversarial_benchmark_heldout.json`` — the generalisation
+    counterpart to ``run()``'s in-sample numbers (review finding H1).
+    """
+    logging.basicConfig(
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        level=logging.INFO,
+        stream=sys.stdout,
+    )
+    df = load_synthetic_features(synthetic_dir)
+    n_bases = int(df["cheat_source_file"].map(base_session_key).nunique())
+    log.info("Held-out benchmark: %d windows across %d base sessions", len(df), n_bases)
+    results = run_benchmark_heldout(
+        df, n_repeats=n_repeats, test_fraction=test_fraction
+    )
+
+    out_path = out_path or (ROOT / "reports" / "adversarial_benchmark_heldout.json")
+    payload = {
+        "provenance": (
+            "Held-out base-session split: StandardScaler + detectors fit on "
+            "TRAIN-legit rows only; held-out legit (negatives) vs held-out cheat "
+            "variants (positives); per-session-max aggregation; repeated-split "
+            "95% interval. Generalisation counterpart to the in-sample "
+            "run_benchmark (review finding H1)."
+        ),
+        "n_repeats": n_repeats,
+        "test_fraction": test_fraction,
+        "n_base_sessions": n_bases,
+        "fpr_threshold": 0.05,
+        "results": results.to_dict(orient="records"),
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2))
+    log.info("Wrote %s", out_path)
+    log.info("\n%s", results.round(3).to_string(index=False))
+    return results
+
+
 def run_lstm_chunk_only(
     data_dir: Path = SYNTHETIC_DIR,
     out_name: str = "real_chunk_benchmark.csv",
@@ -1210,9 +1445,16 @@ if __name__ == "__main__":
         action="store_true",
         help="run only the chunk-level LSTM-AE per-type benchmark",
     )
+    parser.add_argument(
+        "--heldout",
+        action="store_true",
+        help="run the held-out base-session classical benchmark (finding H1)",
+    )
     args = parser.parse_args()
 
-    if args.lstm_chunk_only or args.data_dir is not None:
+    if args.heldout:
+        run_heldout(synthetic_dir=args.data_dir or SYNTHETIC_DIR)
+    elif args.lstm_chunk_only or args.data_dir is not None:
         run_lstm_chunk_only(data_dir=args.data_dir or SYNTHETIC_DIR)
     else:
         run()

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from pipeline.adversarial.benchmark import (
     _build_detectors,
@@ -22,11 +23,14 @@ from pipeline.adversarial.benchmark import (
     _detection_rate_at_fpr,
     _session_difficulty,
     _typed_segments,
+    base_session_key,
+    bootstrap_auc_ci,
     compute_pr_curves,
     compute_roc_curves,
     run_benchmark,
+    run_benchmark_heldout,
 )
-from pipeline.features.run import FEATURE_COLS
+from pipeline.features.run import CHEAT_FEATURE_COLS, FEATURE_COLS
 
 
 def _synthetic_feature_frame(seed: int = 0) -> pd.DataFrame:
@@ -239,3 +243,100 @@ class TestSessionDifficulty:
 
     def test_none_when_unknown(self):
         assert _session_difficulty({}, Path("legit_session.json")) is None
+
+
+# ---------------------------------------------------------------------------
+# Held-out base-session benchmark (review finding H1)
+# ---------------------------------------------------------------------------
+
+
+def _heldout_frame(n_bases: int = 8, shift: float = 6.0, seed: int = 0) -> pd.DataFrame:
+    """Frame with `<base>_<variant>.json` naming so base_session_key groups the
+    legit + cheat variants of each base recording. Cheat rows are shifted on two
+    CHEAT_FEATURE_COLS by ``shift`` (set 0.0 for an undetectable null)."""
+    rng = np.random.default_rng(seed)
+    shifted = CHEAT_FEATURE_COLS[:2]
+    rows = []
+
+    def add(base: str, variant: str, label: str, sep: float):
+        for w in range(4):
+            row = {c: float(rng.normal(0, 1)) for c in CHEAT_FEATURE_COLS}
+            for c in shifted:
+                row[c] += sep
+            row["cheat_label"] = label
+            row["cheat_source_file"] = f"{base}_{variant}.json"
+            row["session_id"] = (
+                f"{base}_{variant}"  # distinct per variant (as in real data)
+            )
+            row["window_idx"] = w
+            rows.append(row)
+
+    for b in range(n_bases):
+        base = f"rec{b}"
+        add(base, "legit", "legit", 0.0)
+        add(base, "aimbot_obvious", "aimbot", shift)
+    return pd.DataFrame(rows)
+
+
+class TestBaseSessionKey:
+    def test_strips_variant_suffixes(self):
+        assert base_session_key("rec3_legit.json") == "rec3"
+        assert base_session_key("rec3_aimbot_obvious.json") == "rec3"
+        assert base_session_key("rec3_triggerbot.json") == "rec3"
+        assert base_session_key("rec3_macro.json") == "rec3"
+
+    def test_preserves_underscores_in_base(self):
+        # only the known variant suffix is stripped, not arbitrary underscores
+        assert base_session_key("20260525T1736_shotik_gta5_legit.json") == (
+            "20260525T1736_shotik_gta5"
+        )
+
+    def test_unknown_name_passes_through(self):
+        assert base_session_key("something_else.json") == "something_else"
+
+
+class TestBootstrapAucCi:
+    def test_perfect_separation_is_high(self):
+        y = np.array([0, 0, 0, 1, 1, 1])
+        scores = np.array([0.1, 0.2, 0.3, 0.9, 0.95, 0.99])
+        lo, hi = bootstrap_auc_ci(y, scores, n_boot=200, seed=0)
+        assert lo <= hi
+        assert hi == 1.0 and lo > 0.5
+
+    def test_single_class_returns_nan(self):
+        lo, hi = bootstrap_auc_ci(np.zeros(8), np.arange(8.0), n_boot=200)
+        assert np.isnan(lo) and np.isnan(hi)
+
+
+class TestRunBenchmarkHeldout:
+    def test_columns_and_ci_ordering(self):
+        out = run_benchmark_heldout(_heldout_frame(), n_repeats=5, seed=1)
+        for col in (
+            "detector",
+            "cheat_label",
+            "roc_auc_mean",
+            "roc_auc_lo",
+            "roc_auc_hi",
+        ):
+            assert col in out.columns
+        assert (out["n_valid_splits"] > 0).all()
+        valid = out.dropna(subset=["roc_auc_lo", "roc_auc_hi"])
+        assert (valid["roc_auc_lo"] <= valid["roc_auc_mean"] + 1e-9).all()
+        assert (valid["roc_auc_mean"] <= valid["roc_auc_hi"] + 1e-9).all()
+
+    def test_separable_cheat_detected_out_of_sample(self):
+        out = run_benchmark_heldout(_heldout_frame(shift=8.0), n_repeats=8, seed=2)
+        # A strongly-shifted cheat must be detectable on HELD-OUT bases.
+        assert out["roc_auc_mean"].max() > 0.8
+
+    def test_null_cheat_is_near_chance(self):
+        # cheat rows drawn from the same distribution as legit → no detector
+        # fit on train-legit should separate them out-of-sample (≈ 0.5). If the
+        # scaler/detector leaked cheat or test rows, this would drift off chance.
+        out = run_benchmark_heldout(_heldout_frame(shift=0.0), n_repeats=10, seed=3)
+        assert out["roc_auc_mean"].between(0.30, 0.70).all()
+
+    def test_raises_without_two_bases(self):
+        one = _heldout_frame(n_bases=1)
+        with pytest.raises(RuntimeError, match="base session"):
+            run_benchmark_heldout(one, n_repeats=3)
