@@ -1,0 +1,5 @@
+outs:
+- md5: c7f444542e78ea4898b83d1a5126fe3f
+  size: 789269
+  hash: md5
+  path: pretrained_cs2cd_s1_50.pt

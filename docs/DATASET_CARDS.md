@@ -51,10 +51,10 @@ redistributing anything derived from them.
 
 | | |
 |---|---|
-| **Source / retrieval** | CS2 cheat-detection dataset (retrieval per notebook 05). The repo uses a **50,000-row balanced sample** of the much larger public release (~735 M ticks); stored as `data/external/cs2cd/cs2cd_balanced_25000.parquet`. |
+| **Source / retrieval** | CS2 cheat-detection dataset (retrieval per notebook 05). The repo uses a **50,000-row balanced sample** (`data/external/cs2cd/cs2cd_balanced_25000.parquet`) of the much larger public release (~735 M ticks). **Phase 8.1** additionally pulls the **full release** (HF `CS2CD/CS2CD.Counter-Strike_2_Cheat_Detection`: **795 matches** = 478 `no_cheater_present` + 317 `with_cheater_present`, ~48 GB) into `data/external/cs2cd_full/` (gitignored, re-downloadable) for in-domain pretraining. |
 | **Unit of observation** | **One game tick** — *not* a mouse event. **226 columns** of server-side game state: `aim_punch_angle(_vel)`, recoil indices, view/round/inventory state, `usercmd_input_history`, etc. |
 | **Counts** | 50,000 ticks, **balanced** `cheater_present` 25k/25k. |
-| **Labels** | `cheater_present` ∈ {0,1} per tick (balanced). It is **cheat-labelled, not player-labelled**. |
+| **Labels** | Balanced sample: `cheater_present` ∈ {0,1} per tick. **Cheat-labelled, not player-labelled** — and the full release is **player-anonymised**: `steamid` is `Player_1..10` *per match*, **not linkable across matches** (Step-0 verdict **PLAYER_THIN**, `scripts/cs2cd_diversity_probe.py`), so there is no cross-match player identity. The **full release has no `cheater_present` column** (the cheat label is the subdirectory — match-level); the per-player cheater id is not recoverable, and the match-level "not-cheater" label is only ~56% precise in cheater matches (per the upstream card). |
 | **Schema mapping → BehaviorDNA** | **Fundamentally different sensor.** CS2CD exposes game-state / view-angle telemetry, *not* OS cursor `x/y`, so the local collector's mouse-kinematic features **do not transfer directly**. The sequence models consume CS2CD's own derived signals; bridging to the local schema needs a deliberately-shared subset or an explicit adapter (not yet built). |
 | **Data quality / continuity** | The **balanced 50k sample breaks temporal continuity** of the full release — ticks are sampled for class balance, not contiguous gameplay. The full-release continuity/match structure is lost in this sample. |
 | **Leakage risk / split unit** | Ticks within a round/match are highly correlated → split by **match (and player) **, never by random tick. The balanced sample does not preserve match grouping, so it supports signal-importance / approach-proof work better than a clean generalisation estimate. |
@@ -62,7 +62,7 @@ redistributing anything derived from them.
 | **Domain shift vs local data** | **Maximal** — different game, different sensor layer (game state vs OS input). A "different game" generalisation datapoint, not a same-sensor transfer. |
 | **Suitable for** | Within-CS2CD **cheat detection** (LSTM-AE chunk AUC ≈ 0.72) and **signal-importance** analysis (notebook 18); a second-game generalisation datapoint. |
 | **Not suitable for** | Cross-corpus *feature* transfer without an adapter; player identification; or reading the balanced-sample AUC as a continuity-preserving production estimate. |
-| **Used by** | Notebooks 16/17/18; [ARCHITECTURE_COMPARISON.md](ARCHITECTURE_COMPARISON.md), [SIGNALS.md](SIGNALS.md). |
+| **Used by** | Notebooks 16/17/18; [ARCHITECTURE_COMPARISON.md](ARCHITECTURE_COMPARISON.md), [SIGNALS.md](SIGNALS.md); **Phase 8.1 in-domain pretraining** (full release) — [PRETRAINING.md](PRETRAINING.md). |
 
 ---
 
