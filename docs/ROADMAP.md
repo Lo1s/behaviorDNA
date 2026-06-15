@@ -49,6 +49,7 @@ ongoing iteration:
 | 7. [Detection-vs-evasion frontier](#phase-7--detection-vs-evasion-frontier) | Parameterised cheat "humanizer"; detector-AUC-vs-evasion curve + equilibrium | ✅ Done (2026-06-13) — **defender-favoured frontier**: no λ is both undetectable and worth running (aimbot humanising *raises* AUC; triggerbot stays 0.76 at zero utility; macro reaches chance only at zero utility). [docs/ADVERSARIAL.md](ADVERSARIAL.md#the-arms-race--detection-vs-evasion-phase-7) |
 | 8. [Self-supervised pretraining](#phase-8--self-supervised-pretraining) | Pretrain the sequence encoder on CaptchaSolve30k; data-efficiency curve | ✅ Done (2026-06-13) — **rigorous null**: no transfer benefit (CS2CD Δ≈0.000; GTA Δ≈−0.005, within ±std); the captcha→game domain gap dominates. [docs/PRETRAINING.md](PRETRAINING.md) |
 | 8.1. [In-domain pretraining](#phase-81--in-domain-pretraining-does-closing-the-domain-gap-rescue-the-null) | Pretrain in-domain on full CS2CD (795 matches) + frozen-encoder arm; does closing the domain gap rescue the Phase 8 null? | ✅ Done (2026-06-15) — **null holds, deeper than the domain gap**: in-domain ≤ scratch, `s2`(dt-neutralised)≈`s1`, volume flat; in-domain CS2 isn't even closer to GTA. [docs/PRETRAINING.md](PRETRAINING.md#phase-81--in-domain-pretraining-does-closing-the-domain-gap-rescue-the-null) |
+| 8.2. [Contrastive pretraining](#phase-82--contrastive-pretraining-does-the-objective-matter) | Swap reconstruction for a contrastive (NT-Xent) objective; eval on the **frozen** embedding (kNN / one-class / linear-probe) | ✅ Done (2026-06-15) — **first non-null**: in-domain contrastive beats random-init **and** the 8.1 reconstruction encoder on every probe (modest, in-domain-specific, volume-flat). The objective was the lever. [docs/PRETRAINING.md](PRETRAINING.md#phase-82--contrastive-pretraining-does-the-objective-matter) |
 | 9. [Outcome-labelled telemetry](#phase-9--outcome-labelled-telemetry) | CS2 demo parsing → kills/damage/accuracy per window; supervised detection + aggregator re-attempt | 🚧 **Spike done (2026-06-14)** — `demoparser2` extracts kills/damage/shots/per-tick view-angles (validated on a real public demo); marker-free motion **clock-sync** recovers injected offsets to <1 sample & self-rejects mismatches. Supervised detector + 4.1 re-attempt await **dual-capture** data. |
 
 Legend: ⬜ Not started · 🚧 In progress · ✅ Done · 📝 Backlog
@@ -419,7 +420,41 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 - [x] re-run `domain_gap_report.py --reference cs2cd` → `reports/pretraining_domain_gap_cs2cd_ref.json` + figure
 - [x] update `docs/PRETRAINING.md` with the verdict
 
-**Pre-registered outcomes (all publishable):** (a) B/C beat A at low budget → in-domain source matters, the foundation-model line holds; (b) still flat → the null is deeper than domain (the task's signal is in obvious snaps, not learnable priors); (c) S2 ≫ S1 → the gap was specifically temporal. → **Outcome (b) fired:** still flat (in-domain ≤ scratch, `s2`≈`s1`, volume flat); (a) and (c) are ruled out. The one remaining untested Phase-8 lever is a **contrastive objective**.
+**Pre-registered outcomes (all publishable):** (a) B/C beat A at low budget → in-domain source matters, the foundation-model line holds; (b) still flat → the null is deeper than domain (the task's signal is in obvious snaps, not learnable priors); (c) S2 ≫ S1 → the gap was specifically temporal. → **Outcome (b) fired:** still flat (in-domain ≤ scratch, `s2`≈`s1`, volume flat); (a) and (c) are ruled out. The one remaining untested Phase-8 lever — a **contrastive objective** — is now run in **Phase 8.2** (below).
+
+---
+
+## Phase 8.2 — Contrastive pretraining (does the *objective* matter?)
+
+> ✅ **Done (2026-06-15) — the first non-null pretraining result.** Swapping reconstruction for a
+> **contrastive** objective (NT-Xent over two augmented views), scored on the *frozen* 16-D embedding
+> (one-class + linear-probe, not reconstruction-error AUC), beats **both** random-init and the Phase-8.1
+> reconstruction encoder on every probe: in-domain `contrastive cs2cd@382` → Maha **0.550** / OCSVM 0.540 /
+> kNN **0.585** / linear-probe **0.662**, vs random 0.481/0.477/0.486/0.547 and recon 0.511/0.528/0.493/0.603
+> (seed±std ≈ 0.01–0.04). Modest (absolute ceiling ~0.55–0.66, near the weak ~0.56 real-cheat signal) and
+> **in-domain-specific** (out-of-domain captcha contrastive is random-level on the one-class metrics), volume
+> flat (saturates by ~50 matches) — but **directional and real**: the *objective* (magnitude-invariant
+> contrastive vs magnitude-dominated reconstruction) was the lever, not corpus / capacity / `dt`. Full
+> write-up: [docs/PRETRAINING.md](PRETRAINING.md#phase-82--contrastive-pretraining-does-the-objective-matter).
+
+**Why:** Phase 8/8.1's reconstruction MSE is magnitude-dominated (the CS2CD "near-separable at random init"
+caveat). A contrastive prior is magnitude-invariant by construction and is evaluated on the embedding
+*directly* (kNN / one-class / linear-probe), not by reconstruction-error AUC — the last item on Phase 8's
+"what would change the verdict" list, and the only swing left after 8/8.1 closed the rest negative.
+
+**Deliverables:**
+- [x] `pipeline/pretraining/augment.py` (jitter / scale / time-mask / crop-resize) + `contrastive.py`
+  (NT-Xent, projection head, two-view datasets reusing the 8.1 shard pipeline, `pretrain_contrastive`) +
+  `embed_eval.py` (frozen-embedding Mahalanobis / OCSVM / kNN / linear-probe); `tests/test_contrastive.py`
+  (25 tests). Behaviour-preserving `_clean_window` extraction in `cs2cd_full.py`.
+- [x] `scripts/contrastive_transfer.py --phase {pretrain,eval}` → 4 encoders
+  (`models/pretrained_contrastive_{cs2cd_50,cs2cd_200,cs2cd_382,captcha}.pt`, DVC-tracked) +
+  `reports/contrastive_transfer.json` (72 runs) + `reports/figures/phase8_2_contrastive_transfer_gta.png`.
+- [x] study notebook [22](../notebooks/22_contrastive_pretraining.ipynb); `docs/PRETRAINING.md` §8.2.
+
+**Verdict:** the pretraining arc resolves — reconstruction doesn't transfer (8/8.1 null), contrastive does,
+modestly and in-domain. The binding constraint remains the small-N task/data regime (the absolute ceiling
+didn't move past ~0.56), so this is a **representation-quality** win, not a deployable detector on its own.
 
 ---
 
@@ -472,6 +507,7 @@ The Phase 4.1 verification showed synthetic *sparse* cheat injection can't separ
 | 7. Evasion frontier | no — uses existing legit windows + LSTM-AE | ✅ start now; CPU-friendly |
 | 8. Pretraining | no — CaptchaSolve30k already cached | ⚠️ needs **GPU desktop** |
 | 8.1. In-domain pretraining | no — full CS2CD release is public/re-downloadable | ⚠️ needs **GPU desktop** + one-time ~52 GB download |
+| 8.2. Contrastive pretraining | no — reuses the 8.1 CS2CD shard cache | ⚠️ needs **GPU desktop** (no new download) |
 | 9. Outcome telemetry | **yes** — new CS2 dual-capture sessions | ✅ spike done (parser + clock-sync validated on a public demo); execution capture lead-time bound |
 
 **Extension order:** 6 → (9 spike) → 7 → 8, with the tech report (F) growing alongside. See [Extension sequencing](#extension-sequencing-phases-69--the-tech-report).

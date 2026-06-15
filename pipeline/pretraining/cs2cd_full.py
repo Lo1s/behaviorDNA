@@ -458,7 +458,13 @@ class CS2CDShardChunkDataset(Dataset):
             self._lru.popitem(last=False)
         return runs
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def _clean_window(self, idx: int) -> np.ndarray:
+        """Return the normalised ``(chunk_length, 8)`` window for global chunk ``idx``.
+
+        The pure window-extraction half of ``__getitem__`` (no masking) — factored
+        out so the Phase 8.2 contrastive subclass can reuse the LRU + global index
+        without re-implementing the bisect lookup.
+        """
         if idx < 0:
             idx += self._len
         r = bisect_right(self._cum, idx)
@@ -467,7 +473,10 @@ class CS2CDShardChunkDataset(Dataset):
         shard_path, run_idx = self._runs[r]
         clean = self._decoded(shard_path)[run_idx]
         start = local * self.stride
-        window = clean[start : start + self.chunk_length]
+        return clean[start : start + self.chunk_length]
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        window = self._clean_window(idx)
         rng = np.random.default_rng(self.seed + idx)
         masked = mask_chunk(window, self.mask_frac, rng)
         return (

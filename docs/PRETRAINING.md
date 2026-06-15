@@ -1,11 +1,12 @@
-# Self-supervised pretraining (Phase 8 / 8.1)
+# Self-supervised pretraining (Phase 8 / 8.1 / 8.2)
 
 > *A small "foundation model for human input motion" — and an honest measurement of why it doesn't
 > (yet) transfer to game-input biometrics.*
 >
 > Code: [`pipeline/pretraining/`](../pipeline/pretraining) · scripts `pretrain_encoder` /
-> `domain_gap_report` / `data_efficiency` · notebook
-> [21](../notebooks/21_pretraining.ipynb) · tests `tests/test_pretraining.py`.
+> `domain_gap_report` / `data_efficiency` / `indomain_transfer` / `contrastive_transfer` · notebooks
+> [21](../notebooks/21_pretraining.ipynb) (8/8.1) & [22](../notebooks/22_contrastive_pretraining.ipynb) (8.2) ·
+> tests `tests/test_pretraining.py`, `tests/test_contrastive.py`.
 
 ## Why
 
@@ -102,7 +103,9 @@ biometrics.**
 2. **An in-domain (game-mouse) pretraining corpus** — the geometry gap to GTA (`dx` PSI 0.37) says
    out-of-domain *motion* is the problem, not the method.
 3. **A contrastive objective** (Phase 8 stretch goal) — reconstruction is dominated by input
-   magnitude (see caveat 1); a contrastive prior would be less magnitude-bound.
+   magnitude (see caveat 1); a contrastive prior would be less magnitude-bound. ✅ **Tested in Phase 8.2
+   (below) — and this one is *not* a null:** in-domain contrastive beats both random-init and the
+   reconstruction encoder on the frozen embedding. The objective was the lever.
 
 ## Phase 8.1 — in-domain pretraining (does closing the domain gap rescue the null?)
 
@@ -156,6 +159,65 @@ training players), so the comparable Phase-8 non-disjoint pool is the target; th
 sanity arm is omitted (the full release carries no recoverable per-player cheat label — the match-level
 "not-cheater" label is ~56% precise per the dataset card).
 
+## Phase 8.2 — contrastive pretraining (does the *objective* matter?)
+
+> ✅ **Done (2026-06-15) — the project's first non-null pretraining result.** Swapping masked-denoising
+> reconstruction for a **contrastive** objective (SimCLR/TS2Vec-style NT-Xent over two augmented views),
+> evaluated **contrastive-natively** on the *frozen* 16-D embedding, beats **both** random-init *and* the
+> Phase-8.1 reconstruction encoder on every probe — modestly, but outside the seed bands. The lever was the
+> **objective**, not the corpus, capacity, or the `dt` encoding.
+
+**Why.** Phase 8 / 8.1 both used *reconstruction* (MSE), which is **magnitude-dominated** — exactly the
+Phase 8.1 caveat (CS2CD is near-separable at random init because cheat snaps have larger deltas → larger
+reconstruction error even untrained). A contrastive prior is **magnitude-invariant by construction** (one
+view is a random rescale of the other) and is scored on the embedding *directly* (kNN / one-class /
+linear-probe), not by reconstruction error — sidestepping that caveat. It was the one item left on Phase 8's
+"what would change the verdict" list.
+
+**Method.** Two augmented views per 8-D chunk (`pipeline/pretraining/augment.py`: jitter + random scale on
+`dx/dy`, time-mask, crop-resize) → `LSTMAutoencoder.encode` (the *same* 16-D bottleneck as 8/8.1) → a
+projection head → **NT-Xent** (`pipeline/pretraining/contrastive.py`). Reuses the 8.1 in-domain CS2CD shard
+pipeline verbatim (`CS2CDShardChunkDataset` → a contrastive two-view subclass + `ShardGroupedSampler`),
+volumes 50/200/382, plus an out-of-domain captcha contrastive encoder. **Eval** = freeze the encoder, embed
+GTA legit/cheat chunks, and score with Mahalanobis / OCSVM / kNN (unsupervised one-class, fit on legit only)
++ a cross-validated linear probe (`pipeline/pretraining/embed_eval.py`, `scripts/contrastive_transfer.py`),
+mean over the GTA fine-tune-budget × seed grid. The **random-init** encoder under the same probe is the
+apples-to-apples baseline (it also retires Phase 8.1's "near-separable at random init" caveat).
+
+**Result (GTA cheat-detection ROC AUC on the *frozen* embedding; mean over budget × seed).**
+
+| source | Mahalanobis | OCSVM | kNN | linear-probe |
+|---|---|---|---|---|
+| random init | 0.481 | 0.477 | 0.486 | 0.547 |
+| recon cs2cd@382 (Phase 8.1) | 0.511 | 0.528 | 0.493 | 0.603 |
+| **contrastive cs2cd@382 (in-domain)** | **0.550** | **0.540** | **0.585** | **0.662** |
+| contrastive captcha (out-of-domain) | 0.482 | 0.474 | 0.530 | 0.605 |
+
+(seed±std ≈ 0.01–0.04; the contrastive-vs-baseline gaps exceed it.)
+
+- **In-domain contrastive beats both baselines on every probe** — Δ vs reconstruction ≈ +0.04 (Maha),
+  +0.01 (OCSVM), +0.09 (kNN), +0.06 (linear-probe); Δ vs random ≈ +0.07 / +0.06 / +0.10 / +0.12. This is the
+  first time *any* pretraining flavour cleared random-init on this target.
+- **The gain is in-domain-specific.** Out-of-domain captcha contrastive matches reconstruction on the
+  linear-probe (0.605) but is **random-level on the unsupervised one-class metrics** (Maha 0.482) — so the
+  contrastive *objective* lifts representation quality even OOD, but *unsupervised detection* needs the
+  in-domain corpus.
+- **Volume is flat** (50/200/382 → Maha 0.537/0.522/0.550, kNN 0.568/0.556/0.585) — the gain **saturates by
+  ≈50 matches**, echoing 8.1's flat volume axis (but now well *above* baseline, not at it).
+- **Unsupervised < supervised:** the cheat is more *linearly separable* (probe 0.66) than a simple
+  density/distance detector extracts (Maha/OCSVM ~0.54–0.55; kNN 0.585 is the best unsupervised scorer).
+
+**Verdict — modest but real; the objective was the lever.** Reconstruction pretraining was a null on this
+target across two corpora *and* the `dt` fix (Phase 8 / 8.1); the **contrastive objective is not** —
+in-domain it yields a frozen embedding measurably better than both random-init and reconstruction. The
+absolute ceiling stays modest (~0.55–0.66, i.e. near the weak ~0.56 real-cheat chunk signal — the task/data
+regime still binds), so it is **not a deployable detector on its own**, and the headline is *directional*: at
+small N, swapping a magnitude-dominated objective for a magnitude-invariant one is what moved the needle.
+Honest caveat (as in 8.1): the legit eval baseline includes the one-class fit's own sessions (mildly
+optimistic), but it is identical for every source, so the *comparison* is fair. Figure:
+`reports/figures/phase8_2_contrastive_transfer_gta.png`; study notebook
+[22](../notebooks/22_contrastive_pretraining.ipynb).
+
 ## Reproduce (CUDA desktop)
 
 ```bash
@@ -171,6 +233,11 @@ python -m scripts.cs2cd_diversity_probe                               # Step-0 g
 python -m pipeline.pretraining.cs2cd_full --step all                  # full-release shards (478 legit) + manifest
 python -m scripts.indomain_transfer --phase all --num-workers 6       # 6 encoders + transfer grid + figure
 python -m scripts.domain_gap_report --reference cs2cd                 # → reports/pretraining_domain_gap_cs2cd_ref.json
+
+# Phase 8.2 — contrastive pretraining (reuses the 8.1 shard cache + manifest; no re-download)
+python -m scripts.contrastive_transfer --phase pretrain              # 4 contrastive encoders (cs2cd 50/200/382 + captcha)
+python -m scripts.contrastive_transfer --phase eval                  # → reports/contrastive_transfer.json + figure
+jupyter nbconvert --to notebook --execute --inplace notebooks/22_contrastive_pretraining.ipynb   # CPU-fast
 ```
 
 `models/pretrained_encoder.pt` is DVC-tracked (`dvc pull` to fetch; `_meta.json` is git-tracked).

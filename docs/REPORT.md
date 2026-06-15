@@ -28,9 +28,11 @@ chance — but we show the *session-level* aggregation saturates at ~0.50 and pr
 why before shipping. Run unmodified on public corpora, the pipeline reaches
 **EER 0.144** on the Balabit mouse-dynamics challenge (10 users) and survives to
 120 users on SapiMouse while exposing the per-user **data budget** as the binding
-constraint. A self-supervised pretraining experiment (masked-denoising on ~17.7k
-unlabelled human-mouse sessions) returns a **rigorous null** — no transfer benefit
-— with a measured domain gap that explains it. Throughout, every headline number
+constraint. Self-supervised *reconstruction* pretraining (masked-denoising,
+out-of-domain and in-domain) returns a **rigorous null** — no transfer benefit, with
+a measured domain gap that explains it — while a **contrastive** objective on the
+frozen embedding is the **first non-null**, isolating the pretext *objective* (not
+the corpus or capacity) as the lever at small N. Throughout, every headline number
 is paired with the check that validates it: confound isolation, drift
 quantification, ablation, calibration, bootstrap CIs, and a bit-faithful serving
 export. The transferable asset is the discipline, not just the metrics.
@@ -218,8 +220,8 @@ weakest of the three axes, N = 18 sessions / 3 players, and the result is specif
 
 → [docs/ADVERSARIAL.md](ADVERSARIAL.md) (arms-race section)
 
-## 8. Self-supervised pretraining & data efficiency *(Phase 8)*
-<!-- Source: notebooks/21, PRETRAINING.md, reports/{pretraining_domain_gap,data_efficiency_*}.json -->
+## 8. Self-supervised pretraining & data efficiency *(Phase 8 / 8.1 / 8.2)*
+<!-- Source: notebooks/21-22, PRETRAINING.md, reports/{pretraining_domain_gap,data_efficiency_*,contrastive_transfer}.json -->
 
 We tested the "data is the bottleneck" thesis directly: masked-denoising-pretrain the LSTM-AE on
 CaptchaSolve30k (≈17.7k unlabelled human-mouse sessions), transfer the full weights, and measure the
@@ -240,6 +242,21 @@ generic human-mouse corpus is not a drop-in foundation for game-input cheat dete
 the next levers are a matched temporal encoding, an in-domain pretraining corpus, or a contrastive
 objective. This is the data-not-capacity thesis confirmed from the other direction: out-of-domain
 *data* didn't substitute for in-domain data.
+
+**Two follow-ups closed the lever list (Phase 8.1 / 8.2).** *(8.1 — in-domain + the `dt` fix)*
+pretraining the same encoder in-domain on the full public CS2CD release (478 legit matches) and
+neutralising the `dt` mismatch **both left transfer unchanged** — in-domain ≤ from-scratch on GTA,
+`dt`-neutralised ≈ native, volume flat; a CS2CD-reference domain-gap re-run shows in-domain CS2 isn't even
+closer to GTA (`dx` PSI 0.88). The null is *deeper than the domain gap* — the binding constraint is the
+small-N task/data regime, not the corpus. *(8.2 — the objective)* swapping the magnitude-dominated
+reconstruction MSE for a magnitude-invariant **contrastive** objective (NT-Xent over two augmented views),
+scored **contrastive-natively** on the *frozen* 16-D embedding (one-class + linear-probe, not
+reconstruction-error AUC), is **the first non-null**: in-domain contrastive beats both random-init and the
+8.1 reconstruction encoder on every probe (e.g. kNN 0.585 vs 0.486 / 0.493; linear-probe 0.662 vs 0.547 /
+0.603). The win is modest (absolute ~0.55–0.66, near the weak ~0.56 real-cheat ceiling), in-domain-specific
+(out-of-domain captcha contrastive is random-level on the unsupervised metrics) and volume-flat — so it is a
+representation-quality result, not a deployable detector; but it isolates the **objective** (not corpus,
+capacity, or `dt`) as the lever that moves small-N transfer.
 
 → [docs/PRETRAINING.md](PRETRAINING.md)
 
