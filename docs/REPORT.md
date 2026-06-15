@@ -1,11 +1,13 @@
 # Input-level behavioural biometrics for cheat detection: what works at small N
 
-> **Status: FULL DRAFT (post-Phase-7).** This is the grow-as-you-go tech report
+> **Status: FULL DRAFT (post-Phase-8.2).** This is the grow-as-you-go tech report
 > (deliverable **F** in [docs/ROADMAP.md](ROADMAP.md)). §§1–10 + the abstract and
-> appendix are drafted from the per-topic docs; **§7 (evasion frontier) is now run
-> and reported.** The remaining action is the manual arXiv submission + a blog-post
-> condensation. This report *condenses and frames* the evidence already in
-> [docs/FINDINGS.md](FINDINGS.md) and the per-topic docs; it does not re-derive.
+> appendix are drafted from the per-topic docs; **§6 (scale/verification) is now the
+> full section including the §6.1 contrastive-identity null, and §§7–8 (evasion
+> frontier, pretraining through 8.2) are run and reported.** The remaining action is
+> the manual arXiv submission + a blog-post condensation. This report *condenses and
+> frames* the evidence already in [docs/FINDINGS.md](FINDINGS.md) and the per-topic
+> docs; it does not re-derive.
 
 **Thesis.** Player identification and automation detection from raw mouse/keyboard
 telemetry is feasible, but the honest story at small data scale is one of
@@ -28,7 +30,9 @@ chance — but we show the *session-level* aggregation saturates at ~0.50 and pr
 why before shipping. Run unmodified on public corpora, the pipeline reaches
 **EER 0.144** on the Balabit mouse-dynamics challenge (10 users) and survives to
 120 users on SapiMouse while exposing the per-user **data budget** as the binding
-constraint. Self-supervised *reconstruction* pretraining (masked-denoising,
+constraint; the same frozen contrastive embedding that helps cheat detection
+**ties random projections** for identity (a clean transfer null). Self-supervised
+*reconstruction* pretraining (masked-denoising,
 out-of-domain and in-domain) returns a **rigorous null** — no transfer benefit, with
 a measured domain gap that explains it — while a **contrastive** objective on the
 frozen embedding is the **first non-null**, isolating the pretext *objective* (not
@@ -156,23 +160,101 @@ check that validates (or bounds) it. → [docs/FINDINGS.md](FINDINGS.md)
   (MAE **~1e-8**, 100% label agreement), regression-gated in CI. (This is §5.3's
   over-parameterisation wearing a different hat.)
 
-## 6. Scaling identification + verification *(Phase 6)*
-<!-- Source: notebooks/19, docs/VERIFICATION.md, reports/external_identification.json. -->
+## 6. Scaling identification + verification *(Phase 6 / 6.1)*
+<!-- Source: notebooks/19, docs/VERIFICATION.md, reports/external_identification.json, reports/contrastive_identity.json. -->
 
-**Draft (2026-06-11).** We run the unmodified windowed-feature pipeline
-(mouse-only slice, 17 features) on two public corpora. On **Balabit** (10
-users, hours of activity each) the pipeline reaches 0.59 closed-set accuracy
-(chance 0.10) and — on the challenge's own labelled impostor task — **EER
-0.144** over 784 test sessions, in the credible range for challenge-era
-dedicated methods. On **SapiMouse** (120 users, *minutes* each, the paper's
-3-min-train / 1-min-test protocol) accuracy stays 10–20× chance at every
-enrolment size up to 120, but absolute accuracy is low (0.11) and **open-set
-rejection is chance-level**: with ~6 training windows per user, 30-second
-aggregate features are data-starved and closed-set softmax confidence is not
-an identity score. The two corpora bracket the claim precisely: the
-behavioural signal survives scale; the per-user data budget — not model
-capacity (§4) — is the binding constraint, motivating §8's pretraining and
-embedding-based verification over classifier confidence.
+The single most damaging reviewer question is *"does this survive beyond 3
+friends?"* The answer is not to recruit fifteen people but to run the
+**unmodified** GTA pipeline — same windowing, same feature code, same model
+family — on public mouse-dynamics corpora at 10–120 users, and at the same time
+to **reframe the task**. Closed-set "which of N players" is not the industry
+problem; *"is this account being played by its usual owner?"* is — the
+account-sharing / smurf / boost-detection framing (and, beyond games,
+continuous authentication and fraud/bot detection). We report both, under the
+challenge's own genuine/impostor **EER** protocol and an open-set rejection
+test. Both corpora are **mouse-only**, so models use `MOUSE_ID_FEATURE_COLS`
+(17 features; keyboard features *excluded*, not zero-filled) — the GTA numbers
+of §5 are therefore not directly comparable, since the GTA fingerprint is partly
+keyboard timing (SHAP, §5.1).
+
+**Balabit (10 users — the literature benchmark; hours of activity each).** The
+pipeline reaches **0.59** closed-set accuracy (95% CI 0.57–0.62; chance 0.10)
+over 9,710 windows, and on the challenge's own labelled impostor task —
+scoring each session as the mean P(claimed user) — **EER 0.144** over 784 test
+sessions (395 genuine / 389 impostor). Challenge-era dedicated methods report
+roughly 7–25% EER depending on data volume per decision, so a *generic*
+windowed-feature + LightGBM pipeline transferred with no corpus-specific tuning
+sits squarely in the credible range. EER is the headline number, not closed-set
+accuracy, precisely because it matches the deployment question.
+
+**SapiMouse (120 users — the scale stress-test; *minutes* each).** Under the
+paper's 3-min-train / 1-min-test protocol — about **6 training windows per
+user** — accuracy stays 10–20× chance at every enrolment size:
+
+| Enrolled users | Accuracy (mean / 5 draws) | Chance | ×chance |
+|---|---|---|---|
+| 3 | 0.68 | 0.333 | 2× |
+| 10 | 0.57 | 0.100 | 6× |
+| 30 | 0.36 | 0.033 | 11× |
+| 60 | 0.31 | 0.017 | 19× |
+| 120 | 0.11 (CI 0.08–0.14) | 0.008 | **13×** |
+
+But absolute accuracy is low (0.11 at 120 users), window-level verification EER
+is **0.38**, and **open-set rejection is chance-level** (60 enrolled / 60
+unknown: EER ≈ 0.48; FAR@FRR≤5% ≈ 0.93).
+
+The two corpora bracket the claim precisely:
+
+1. **The signal survives scale** — 10–20× chance all the way to 120 users; the
+   method does not collapse beyond 3 friends.
+2. **Absolute performance is data-bound, not method-bound at the small end** —
+   Balabit (hours/user) yields a usable EER; SapiMouse (minutes/user, ~6
+   windows) is data-starved and far from deployable. The binding constraint is
+   the **per-user data budget**, not model capacity (§4).
+3. **Open-set is the hard frontier** — max-probability rejection of unknown
+   users is chance-level: closed-set softmax confidence is *not* an identity
+   score. This motivates §8's pretraining (transfer a motion prior so per-user
+   data goes further) and embedding/metric-learning over classifier confidence.
+
+### 6.1 Do contrastive embeddings transfer to identity? *(a clean null)*
+
+Point 3 names embedding/metric-learning as the natural next move, and §8.2
+showed a self-supervised **contrastive** objective produces a frozen embedding
+that beats both random-init and reconstruction for *cheat* detection — so we
+tested whether that lever transfers to *identity*. We pretrain the same LSTM-AE
+backbone contrastively on Balabit's own mouse motion (NT-Xent over two augmented
+views), freeze it, embed sessions through the 16-D bottleneck, and score the
+session-verification EER two ways — **cosine** to the enrolled user and a
+**LightGBM** on per-chunk embeddings (the §6 protocol with hand-features →
+embedding). A scale-augmentation ablation (`noscale`) tests whether the
+scale-invariance 8.2 *wanted* for cheat detection *discards* the speed/scale
+cues identity needs.
+
+| frozen encoder | cosine EER | classifier EER |
+|---|---|---|
+| random init | 0.338 ± 0.009 | 0.255 ± 0.005 |
+| contrastive (in-domain) | 0.301 | 0.250 |
+| contrastive, no scale-aug | 0.299 | 0.250 |
+| contrastive cs2cd (cross-domain) | 0.403 | 0.250 |
+| **hand-crafted features (§6)** | — | **0.136** |
+
+**The 8.2 lever does not transfer to identity.** Every 16-D embedding hits the
+same ~0.25 classifier-EER — the contrastive encoder is statistically **tied with
+random init** (0.255 ± 0.005), the only learning signal a modest cosine-route
+gain (0.34 → 0.30). The **hand-crafted features roughly halve** that EER (0.136),
+so at this scale domain-informed features beat self-supervised representations
+for identity — the same "capacity isn't the bottleneck, the data budget binds"
+finding from the other direction. And the scale hypothesis is **not** supported:
+`noscale` ≈ `scale` (0.299 vs 0.301), so the bottleneck is not scale-invariance
+but something more basic — *augmentation*-contrastive self-supervision learns
+*augmentation-invariance*, which is orthogonal to *user-discrimination* (the
+cross-domain encoder is even *worse* than random, 0.403). A footnote sharpens
+the bar: a **random** LSTM embedding already verifies at ~0.25 EER (mouse-motion
+sequences are identity-rich enough that random projections + a classifier
+separate 10 users well below chance), so "beat random" is the meaningful bar the
+self-supervised objective fails to clear. The principled next step (not run
+here) is **supervised / metric** contrastive — positives drawn from the *same
+user* rather than augmented views — which targets identity directly.
 
 → [docs/VERIFICATION.md](VERIFICATION.md)
 
@@ -284,7 +366,8 @@ capacity, or `dt`) as the lever that moves small-N transfer.
 What survived scrutiny: a **same-hardware behavioural fingerprint** (~0.75, driven
 by timing/rhythm), **chunk-level deep cheat detection** (aimbot 0.79 / triggerbot
 0.93 where window features are at chance), **literature-comparable verification at
-scale** (Balabit EER 0.144), and — the throughline — a **methodology that measures
+scale** (Balabit EER 0.144, where hand-crafted features still beat learned
+embeddings — §6.1), and — the throughline — a **methodology that measures
 and verifies**: confound isolation, drift quantification, ablation, calibration,
 bootstrap CIs, and a bit-faithful serving export. What is data-gated: session-level
 risk aggregation, outcome-based detection, and (newly) out-of-domain pretraining
