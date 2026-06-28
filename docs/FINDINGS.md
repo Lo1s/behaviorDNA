@@ -2,19 +2,26 @@
 
 The honest results, in one place. The theme: **measure, don't assume — and
 report the limitation even when it's inconvenient.** Every number here is on
-real GTA5 data (18 sessions, 3 players) unless stated; treat them as directional
+real GTA5 data (22 sessions, 4 players) unless stated; treat them as directional
 at this scale, not production guarantees.
 
 ---
 
 ### 1. A real behavioural biometric — once you control for hardware
 
-3-class player identification scores **0.85** test accuracy (95% CI 0.74–0.97,
-window bootstrap — the interval is wide because the test set is 34 windows, and
-we say so). But two of the players (hydra, dninix) were recorded on the **same
+4-class player identification scores **0.72** test accuracy (95% CI 0.60–0.83,
+window bootstrap — the interval is wide because the test set is 53 windows, and
+we say so). Two of the four players (hydra, dninix) were recorded on the **same
 PC with identical settings** — only the human differs. Evaluating *just that
-pair* gives **0.75** (vs a 0.65 majority baseline). The third player sits on
-different hardware and is trivially separable, which inflates the 3-class number.
+pair* gives **0.75** (vs a 0.65 majority baseline). The other two sit on their
+own hardware: one (shotik) is near-perfectly separable (a hardware tell), but the
+newest (ropyk) is **not** trivially separable despite a distinct rig — 13/20 test
+windows, confused with dninix/shotik — evidence the sens/DPI normalisation
+*removes* most of the hardware artefact rather than masking it. Adding the 4th
+player lowered the headline from 0.85 (3-class) to 0.72: a harder, more honest
+task. (Catching this needed fixing a **100× sensitivity data-entry error** in
+ropyk's recordings — left in, the bad `norm_factor` would have made ropyk
+trivially separable by a pure normalisation artefact and *inflated* the number.)
 
 **So the honest claim is the narrower one:** on identical hardware, where the
 only variable is the person, the model distinguishes two players at ~75% from
@@ -57,7 +64,7 @@ controllable capture harness was built.
 Splitting the 25 features into 5 families and ablating each (8-seed-averaged):
 single families already classify well alone (mouse-kinematics, keyboard each
 ≈ 0.75–0.79), and **dropping a whole family often *raises* validation accuracy**.
-The model is **over-parameterised at 18 sessions**. So the planned
+The model is **over-parameterised at this data scale**. So the planned
 feature-expansion phase was **deferred on evidence** — the lever at this scale is
 more data or feature *reduction*, not more features.
 → `notebooks/15_ablation.ipynb`

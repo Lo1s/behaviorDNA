@@ -7,7 +7,7 @@
 
 ## The reframe
 
-Closed-set *"which of 3 players is this?"* is not the industry problem.
+Closed-set *"which of 4 players is this?"* is not the industry problem.
 **Verification** is: *"is this account being played by the person who usually
 plays it?"* — account sharing, smurfing, boosting. Same models, harder and more
 honest protocol (EER over genuine/impostor trials, open-set rejection of users

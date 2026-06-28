@@ -2,7 +2,7 @@
 
 > Phase 2 of the [BehaviorDNA roadmap](ROADMAP.md). Unsupervised sequence model that operates on the raw event stream and solves the Phase 1 aimbot detection gap.
 
-> **Data status (2026-05-30).** Numbers below are now measured on **18 real GTA sessions** (3 players, 1.35M events). Retrain via `python -m scripts.train_lstm_ae` (persisted to `models/lstm_ae.pt`). Real-data chunk-level AUC: aimbot 0.79, triggerbot 0.93, macro 0.60. The chunk-level result is the headline; session-level aggregation stays near chance (see `docs/STREAMING.md` → Phase 4.1).
+> **Data status (2026-06-28).** Numbers below are now measured on **22 real GTA sessions** (4 players, 1.70M events). Retrain via `python -m scripts.train_lstm_ae` (persisted to `models/lstm_ae.pt`). Real-data chunk-level AUC: aimbot 0.79, triggerbot 0.93, macro 0.60. The chunk-level result is the headline; session-level aggregation stays near chance (see `docs/STREAMING.md` → Phase 4.1).
 
 ## Motivation
 

@@ -107,6 +107,23 @@ class TestCheckOne:
         assert r["status"] == "FAIL"
         assert any("JSON" in f for f in r["fails"])
 
+    def test_non_positive_sensitivity_fails(self, tmp_path):
+        # sensitivity <= 0 → norm_factor 0/negative → div-by-zero / sign flip.
+        s = _good_session()
+        s["sensitivity"] = 0
+        p = _write(tmp_path, "zero_sens.json", s)
+        r = check_one(p)
+        assert r["status"] == "FAIL"
+        assert any("sensitivity" in f for f in r["fails"])
+
+    def test_non_positive_dpi_fails(self, tmp_path):
+        s = _good_session()
+        s["dpi"] = -1
+        p = _write(tmp_path, "neg_dpi.json", s)
+        r = check_one(p)
+        assert r["status"] == "FAIL"
+        assert any("dpi" in f for f in r["fails"])
+
 
 # ---------------------------------------------------------------------------
 # validate_dir — cross-file batch checks
@@ -133,6 +150,34 @@ class TestValidateDir:
         _write(tmp_path, "solo.json", _good_session(player="loner"))
         results = validate_dir(tmp_path)
         assert any(any("would be dropped" in w for w in r["warns"]) for r in results)
+
+    def test_sensitivity_outlier_warns(self, tmp_path):
+        # The ropyk bug: one session's sensitivity is a 100x units typo (0.25 vs
+        # the batch's 25.0). The outlier should WARN; the in-range ones shouldn't.
+        for i, sens in enumerate([25.0, 25.0, 0.25]):
+            s = _good_session(player="hydra")
+            s["sensitivity"] = sens
+            _write(tmp_path, f"s{i}.json", s)
+        results = validate_dir(tmp_path)
+        outliers = [r for r in results if r["sensitivity"] == 0.25]
+        in_range = [r for r in results if r["sensitivity"] == 25.0]
+        assert outliers and all(
+            any("off the batch median" in w for w in r["warns"]) for r in outliers
+        )
+        assert in_range and not any(
+            any("off the batch median" in w for w in r["warns"]) for r in in_range
+        )
+
+    def test_normal_sensitivity_spread_no_warn(self, tmp_path):
+        # A genuine spread inside the 10x factor must not false-positive.
+        for i, sens in enumerate([20.0, 25.0, 30.0]):
+            s = _good_session(player="hydra")
+            s["sensitivity"] = sens
+            _write(tmp_path, f"s{i}.json", s)
+        results = validate_dir(tmp_path)
+        assert not any(
+            any("off the batch median" in w for w in r["warns"]) for r in results
+        )
 
 
 # ---------------------------------------------------------------------------

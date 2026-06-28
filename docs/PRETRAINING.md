@@ -149,7 +149,7 @@ honest metric there). The in-domain corpus simply isn't on the GTA manifold.
 *and* removing the temporal mismatch both leave transfer unchanged. The binding constraint is the
 **task/data regime**, not the corpus: the real-cheat GTA chunk signal is weak (~0.56 — the same ceiling
 scratch reaches) and lives in obvious per-event anomalies, not a learnable motion *prior*, so no
-pretraining flavour helps at N≈18 sessions / 3 players. The one Phase-8 lever 8.1 did **not** test is a
+pretraining flavour helps at N≈18 sessions / 3 players (the Phase-8 GTA downstream predates the 4th player). The one Phase-8 lever 8.1 did **not** test is a
 **contrastive objective**; the rest of the "what would change the verdict" list is now closed (negative).
 Figure: `reports/figures/phase8_1_indomain_transfer_gta.png`.
 

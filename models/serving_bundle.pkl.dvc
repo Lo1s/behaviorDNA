@@ -1,5 +1,5 @@
 outs:
-- md5: 7ec3d35dff7bb5b69723ef6b988f0458
-  size: 1843306
+- md5: d87ff650e3f0f5c3d767b4be3c063ee8
+  size: 1860983
   hash: md5
   path: serving_bundle.pkl

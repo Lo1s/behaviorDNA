@@ -2,7 +2,7 @@
 
 > Methodology and results write-up for [Phase 3](ROADMAP.md#phase-3--adversarial-bot-generation--detection-benchmark) of the BehaviorDNA roadmap.
 
-> **Data status (2026-05-30).** The headline results are now measured on **18 real GTA sessions** (3 players) — see [On real data](#on-real-data-2026-05-30--18-real-gta-sessions-3-players). The chunk-level LSTM-AE detects aimbot at AUC 0.79 and triggerbot at 0.93 on real gameplay; classical window features stay at chance for aimbot. The earlier "evolution" tables (Phase 3 baseline → Phase 1) are retained as **historical mock-data baselines** that motivated each phase — they're labelled as such.
+> **Data status (2026-06-28).** The headline results are now measured on **22 real GTA sessions** (4 players) — see [On real data](#on-real-data-2026-06-28--22-real-gta-sessions-4-players). The chunk-level LSTM-AE detects aimbot at AUC 0.78 and triggerbot at 0.92 on real gameplay; classical window features stay at chance for aimbot. The earlier "evolution" tables (Phase 3 baseline → Phase 1) are retained as **historical mock-data baselines** that motivated each phase — they're labelled as such.
 
 ## Why this exists
 
@@ -133,22 +133,22 @@ Phase 1 added 7 trajectory and timing features (see [FEATURES.md](FEATURES.md)) 
 
 ---
 
-### On real data (2026-05-30) — 18 real GTA sessions, 3 players
+### On real data (2026-06-28) — 22 real GTA sessions, 4 players
 
-The headline result. Synthetic cheats injected into the **18 real legit recordings**; LSTM-AE loaded from the persisted artifact; combined detector on an honest stratified 54/54-session split:
+The headline result. Synthetic cheats injected into the **22 real legit recordings**; LSTM-AE loaded from the persisted artifact; combined detector on an honest stratified 66/66-session split:
 
 | Detector | aimbot | macro | triggerbot |
 |---|---|---|---|
-| IsolationForest | 0.50 | 0.49 | 0.50 |
-| LocalOutlierFactor | 0.50 | 0.51 | 0.50 |
-| OneClassSVM | 0.58 | 0.63 | 0.76 |
-| **LSTMAutoencoder (chunk)** | **0.79** | 0.60 | **0.93** |
-| LSTMAutoencoder (session-p95) | 0.51 | 0.51 | 0.51 |
-| Combined (Phase 4 aggregator) | 0.42 | 0.52 | 0.61 |
+| IsolationForest | 0.50 | 0.49 | 0.47 |
+| LocalOutlierFactor | 0.50 | 0.50 | 0.50 |
+| OneClassSVM | 0.61 | 0.58 | 0.76 |
+| **LSTMAutoencoder (chunk)** | **0.78** | 0.61 | **0.92** |
+| LSTMAutoencoder (session-p95) | 0.50 | 0.51 | 0.51 |
+| Combined (Phase 4 aggregator) | 0.53 | 0.35 | 0.69 |
 
-**Read:** the thesis holds on real data. The **chunk-level LSTM-AE is the only detector that decisively beats chance on aimbot (0.79)** and is strongest on triggerbot (0.93) — exactly the cheats whose signal lives in short bursts the hand-crafted window features average away (classical detectors stay at ~0.50 for aimbot). Macro is the hardest (0.60): its periodic-click signature is partly visible to `keystroke_periodicity` (OneClassSVM 0.63) but subtle to the autoencoder. See `reports/figures/phase4_chunk_detection.png` for the per-chunk error distributions behind these AUCs.
+**Read:** the thesis holds on real data. The **chunk-level LSTM-AE is the only detector that decisively beats chance on aimbot (0.78)** and is strongest on triggerbot (0.92) — exactly the cheats whose signal lives in short bursts the hand-crafted window features average away (classical detectors stay at ~0.50 for aimbot). Macro is the hardest (chunk 0.61, OneClassSVM 0.58): its periodic-click signature is only weakly captured by either. See `reports/figures/phase4_chunk_detection.png` for the per-chunk error distributions behind these AUCs.
 
-The **Combined (aggregator) row is *below* chance for aimbot (0.42)** — it does *not* beat the best individual detector. The aggregator math is correct (`tests/test_aggregator.py`), but it combines *session-level* detector scores, and on real data those are near-chance (session-p95 ≈ 0.50, classical ≈ 0.50): a sparse cheat touches a minority of a session's chunks, and the isotonic calibrators are fit on only 18 legit sessions. Combining near-chance signals over a tiny calibration set is worse than just trusting the chunk-level detector. **The discriminative power is at the chunk level, not in the session-level combination** — recalibrating the aggregator (or aggregating the chunk signal directly) is tracked as Phase 4.1. See [docs/STREAMING.md](STREAMING.md) for the full write-up + the normalisation bug fixed this round.
+The **Combined (aggregator) row still fails to beat the chunk detector** — aimbot 0.53 (vs chunk 0.78), and for **macro it is *below* chance (0.35)**. The aggregator math is correct (`tests/test_aggregator.py`), but it combines *session-level* detector scores, and on real data those are near-chance (session-p95 ≈ 0.50, classical ≈ 0.50): a sparse cheat touches a minority of a session's chunks, and the isotonic calibrators are fit on only 22 legit sessions. Combining near-chance signals over a tiny calibration set is worse than just trusting the chunk-level detector. **The discriminative power is at the chunk level, not in the session-level combination** — recalibrating the aggregator (or aggregating the chunk signal directly) is tracked as Phase 4.1. See [docs/STREAMING.md](STREAMING.md) for the full write-up + the normalisation bug fixed this round.
 
 <details><summary>Historical: same benchmark on the old mock dataset (kept for comparison)</summary>
 
@@ -164,7 +164,7 @@ The mock numbers looked *higher* on triggerbot/macro because mock "legit" (idle 
 ### Held-out base-session benchmark (classical features)
 
 The tables above are **in-sample** (see the note under *Benchmark*). The held-out
-counterpart (`--heldout`) splits the 18 base recordings, fits the scaler **and**
+counterpart (`--heldout`) splits the 22 base recordings, fits the scaler **and**
 detectors on the train split's legit rows only, and evaluates held-out legit vs
 held-out cheat variants per type, over 20 repeated 60/40 splits
 (`reports/adversarial_benchmark_heldout.json`):
@@ -285,11 +285,11 @@ source .venv/bin/activate
 # 0. Pull the versioned artifacts: legit recordings (data/raw) + LSTM-AE model
 dvc pull
 
-# 1. Regenerate the labelled synthetic set (18 legit recordings → 108 hybrid
-#    sessions); deterministic (~520 MB), written to data/synthetic/
+# 1. Regenerate the labelled synthetic set (22 legit recordings → 132 hybrid
+#    sessions); deterministic (~660 MB), written to data/synthetic/
 python -m pipeline.adversarial.generate_dataset
 
-# 2. Reproduce the headline detection AUCs (aimbot ~0.79, triggerbot ~0.93)
+# 2. Reproduce the headline detection AUCs (aimbot ~0.78, triggerbot ~0.92)
 python -m pipeline.adversarial.benchmark
 
 # 3. (optional) Re-execute the full tutorial notebook end-to-end

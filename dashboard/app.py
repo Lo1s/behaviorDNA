@@ -472,7 +472,7 @@ with tab5:
 
         > **Data caveat:** the recordings are real GTA mouse/keyboard sessions, but the
         > *session-level* combined risk still saturates on the current small calibration
-        > set (18 sessions). The chunk-level detectors work; recalibration is Phase 4.1
+        > set (22 sessions). The chunk-level detectors work; recalibration is Phase 4.1
         > (see [`docs/STREAMING.md`](../docs/STREAMING.md)).
         """)
 

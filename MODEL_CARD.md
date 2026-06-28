@@ -4,7 +4,7 @@ Two models ship in this project. This card documents both, their intended use,
 measured performance on **real** GTA5 data, and — most importantly for an
 anti-cheat context — their **limitations and the cost of being wrong**.
 
-> Status: research / portfolio. Trained on a small real dataset (18 sessions, 3
+> Status: research / portfolio. Trained on a small real dataset (22 sessions, 4
 > players) plus synthetic cheats. Numbers are **directional**, not production
 > guarantees. See [docs/FINDINGS.md](docs/FINDINGS.md) for the honest narrative.
 
@@ -19,21 +19,22 @@ anti-cheat context — their **limitations and the cost of being wrong**.
 | **Output** | player label + raw class probabilities (`predict_proba`; **uncalibrated** at serving — see Calibration below) |
 | **Code** | `pipeline/training/run.py`, `pipeline/features/run.py` |
 
-**Metrics (real data, held-out test):** accuracy **0.85** (95% CI 0.74–0.97),
-weighted F1 **0.86** (95% CI 0.75–0.97) — 3 players, 34 test windows,
+**Metrics (real data, held-out test):** accuracy **0.72** (95% CI 0.60–0.83),
+weighted F1 **0.73** (95% CI 0.62–0.85) — 4 players, 53 test windows,
 2000-resample window bootstrap. The intervals are wide because the test set is
 small, and they are quoted for exactly that reason; `reports/eval_metrics.json`
 is the source of truth (the README results block regenerates from it). On the
 **same-hardware pair** (hydra vs dninix — identical PC/settings, only the human
 differs) accuracy is **0.75** — the honest behavioural-biometric number, since
-the 3-class figure is partly inflated by a third player on different hardware
-([FINDINGS](docs/FINDINGS.md)).
+the multi-class figure is partly aided by players on distinct hardware (shotik
+especially; the 4th player ropyk is *not* trivially separable, evidence the
+normalisation works — [FINDINGS](docs/FINDINGS.md)).
 
 **Calibration:** ECE/Brier are *measured* (isotonic improves Brier 0.275→0.224;
 Platt does not — small-N fragility); see `notebooks/13_calibration.ipynb`. This
 is a **diagnostic only**: the served artifact (`models/model.pkl`) and the API
 return raw `predict_proba`, **not** calibrated probabilities. No calibrator is
-persisted into the serving path because the validation fold (46 windows) is too
+persisted into the serving path because the validation fold (62 windows) is too
 small to fit a trustworthy one — treat the API probabilities as uncalibrated
 scores, not thresholdable likelihoods.
 
@@ -58,7 +59,7 @@ synthetic data — a documented ceiling, not a tuning gap ([FINDINGS](docs/FINDI
 - **In scope:** research into input-based behavioural biometrics and automation
   detection; a portfolio demonstration of an end-to-end ML/MLOps system.
 - **Out of scope:** issuing real bans or moderation actions; any
-  production/safety-critical use; generalising beyond the 3 enrolled players or
+  production/safety-critical use; generalising beyond the 4 enrolled players or
   beyond GTA5 mouse/keyboard play.
 - **Users:** the project author / reviewers, offline.
 
@@ -85,7 +86,7 @@ test (`pipeline/onnx_export.py`, `tests/test_onnx_export.py`, [FINDINGS #7](docs
 
 ## Limitations & caveats
 
-- **Tiny dataset:** 18 sessions / 3 players. Metrics have wide confidence
+- **Tiny dataset:** 22 sessions / 4 players. Metrics have wide confidence
   intervals; the 25-feature model is **over-parameterised** at this N (ablation:
   dropping a feature family can *raise* validation accuracy).
 - **Hardware confound:** cross-hardware identification is optimistic; only the

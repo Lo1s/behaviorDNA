@@ -1,4 +1,5 @@
-true \ predicted,dninix,hydra,shotik
-dninix,6,0,1
-hydra,2,11,0
-shotik,2,0,12
+true \ predicted,dninix,hydra,ropyk,shotik
+dninix,5,1,1,0
+hydra,5,8,0,0
+ropyk,4,0,13,3
+shotik,0,0,1,12

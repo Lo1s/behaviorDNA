@@ -9,11 +9,13 @@ It layers extra checks on top of the hard validation that ingestion already
 does (`pipeline.ingestion.run.validate_session`):
 
   FAIL  — would break ingestion or training (missing required fields,
-          corrupt event_count, empty/too-short session, bad JSON)
+          corrupt event_count, empty/too-short session, bad JSON,
+          non-positive sensitivity/dpi → degenerate speed normalisation)
   WARN  — ingests fine but worth a look (missing/unknown activity label,
           mixed polling rates across the batch, non-monotonic timestamps,
           a player with fewer than min_sessions_per_player sessions,
-          duration far from the ~6 min target)
+          a sensitivity far off the batch median (likely a units/decimal
+          data-entry error), duration far from the ~6 min target)
   PASS  — clean
 
 Exit code is 0 when there are no FAILs (1 otherwise), so this can gate a
@@ -28,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import statistics
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -51,6 +54,14 @@ KNOWN_ACTIVITIES = {"on_foot", "driving", "combat", "sniping", "free_roam"}
 # ~6 min recording target; flag sessions well outside a generous band
 DURATION_MIN_S = 60.0
 DURATION_MAX_S = 900.0
+
+# Speed normalisation (norm_factor = sensitivity * dpi / 800) is silently
+# poisoned by data-entry errors in the `sensitivity` field — e.g. 0.25 vs the
+# rest of the batch's 25.0 (a 100x units/decimal typo) mis-scales mouse
+# kinematics by orders of magnitude. Flag a session whose sensitivity deviates
+# from the batch median by more than this factor. (Genuine same-game spreads —
+# even across a 2x DPI gap — stay well inside it.)
+SENSITIVITY_OUTLIER_FACTOR = 10.0
 
 
 def _min_sessions_per_player(default: int = 3) -> int:
@@ -140,6 +151,17 @@ def check_one(path: Path) -> dict:
         elif duration_s > DURATION_MAX_S:
             warns.append(f"long session: {duration_s:.0f}s (> {DURATION_MAX_S:.0f}s)")
 
+    # Sens/DPI sanity — these drive the speed normalisation (norm_factor =
+    # sensitivity * dpi / 800). Non-positive values make norm_factor zero or
+    # negative → division-by-zero / sign-flipped speeds downstream. (The
+    # cross-file outlier check in validate_dir catches the subtler units typo.)
+    sensitivity = data.get("sensitivity")
+    dpi = data.get("dpi")
+    if isinstance(sensitivity, (int, float)) and sensitivity <= 0:
+        fails.append(f"sensitivity={sensitivity} must be > 0 (breaks norm_factor)")
+    if isinstance(dpi, (int, float)) and dpi <= 0:
+        fails.append(f"dpi={dpi} must be > 0 (breaks norm_factor)")
+
     status = "FAIL" if fails else ("WARN" if warns else "PASS")
     return {
         "file": path.name,
@@ -150,6 +172,7 @@ def check_one(path: Path) -> dict:
         "activity": activity,
         "polling_rate": polling_rate,
         "duration_s": duration_s,
+        "sensitivity": sensitivity,
     }
 
 
@@ -182,6 +205,29 @@ def validate_dir(directory: Path) -> list[dict]:
             )
             if r["status"] == "PASS":
                 r["status"] = "WARN"
+
+    # Sensitivity outlier — catches sens/DPI data-entry errors (e.g. a 0.25 vs
+    # 25.0 units/decimal typo) that silently mis-scale the speed normalisation.
+    sens_vals = [
+        r["sensitivity"]
+        for r in results
+        if isinstance(r.get("sensitivity"), (int, float)) and r["sensitivity"] > 0
+    ]
+    if len(sens_vals) >= 2:
+        median_sens = statistics.median(sens_vals)
+        for r in results:
+            s = r.get("sensitivity")
+            if not (isinstance(s, (int, float)) and s > 0) or median_sens <= 0:
+                continue
+            ratio = max(s / median_sens, median_sens / s)
+            if ratio > SENSITIVITY_OUTLIER_FACTOR:
+                r["warns"].append(
+                    f"sensitivity={s:g} is {ratio:.0f}x off the batch median "
+                    f"({median_sens:g}) — likely a units/decimal data-entry error "
+                    "(it mis-scales speed normalisation)"
+                )
+                if r["status"] == "PASS":
+                    r["status"] = "WARN"
 
     return results
 

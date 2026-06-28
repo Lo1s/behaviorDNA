@@ -199,7 +199,7 @@ the sparse synthetic data couldn't).
 
 - **Detection benchmark + legit baseline:** strong gains. Real-cheat AUC replaces
   the synthetic caveat; continuous-cheat sessions let you re-attempt Phase 4.1.
-- **Identification:** unchanged (still 3 players) — that waits for more people.
+- **Identification:** now 4 players (ropyk added 2026-06-28) — broader scale still waits for more people.
 - A detector trained on *one* player's legit may over-fit your style (it could
   call a *different* human "anomalous"). That broadens as more players' legit
   data lands; fine for a first real-cheat benchmark.
@@ -222,7 +222,7 @@ Much weaker than the synthetic 0.79–0.92 — and **aimbot, strongest on synthe
 weakest on real** (a human with aim-assist still does most of the aiming; the synthetic
 generator snaps hard). The biggest confound left is that **all cheat data is one player on
 one rig** (sens 25 / dpi 1600 / 1000 Hz / claw / left), so a detector tuned here could be
-fitting hydRa's hardware, not "cheating". The legit baseline already has 3 players; the
+fitting hydRa's hardware, not "cheating". The legit baseline already has 4 players; the
 cheat positives have one.
 
 **So the next data priority is the same protocol from ≥1 other player on different

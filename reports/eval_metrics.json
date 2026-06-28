@@ -1,19 +1,19 @@
 {
   "evaluated": true,
   "model_type": "lightgbm",
-  "test_accuracy": 0.8529411764705882,
+  "test_accuracy": 0.7169811320754716,
   "test_accuracy_ci95": [
-    0.7352941176470589,
-    0.9705882352941176
+    0.6037735849056604,
+    0.8306603773584881
   ],
-  "precision_weighted": 0.885972850678733,
-  "recall_weighted": 0.8529411764705882,
-  "f1_weighted": 0.8618319876970396,
+  "precision_weighted": 0.7884696016771489,
+  "recall_weighted": 0.7169811320754716,
+  "f1_weighted": 0.7318467695826186,
   "f1_weighted_ci95": [
-    0.7469615214506855,
-    0.9700301844875882
+    0.622024868925251,
+    0.8505846908082348
   ],
   "n_bootstrap": 2000,
-  "n_test_windows": 34,
-  "n_classes": 3
+  "n_test_windows": 53,
+  "n_classes": 4
 }

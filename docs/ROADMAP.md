@@ -71,7 +71,7 @@ Agreed sequencing for the remaining work, now that real recordings are in. Rigor
 
 ### Extension sequencing (Phases 6–9 + the tech report)
 
-Phases 1–5 closed the original portfolio scope (end-to-end pipeline, deep model, adversarial benchmark, statistical rigor) — but on **3 players / 1 cheat recorder**, which is the credibility ceiling. Phases 6–9 attack that ceiling, ordered by impact-per-evening **and** by what's unblocked now:
+Phases 1–5 closed the original portfolio scope (end-to-end pipeline, deep model, adversarial benchmark, statistical rigor) — but on **4 players / 1 cheat recorder**, which is the credibility ceiling. Phases 6–9 attack that ceiling, ordered by impact-per-evening **and** by what's unblocked now:
 
 1. ~~**Phase 6 — public-corpus ID + verification (A + D merged).**~~ ✅ **done (2026-06-11)** — Balabit (10 users) closed-set 0.59 / impostor EER 0.144; SapiMouse (120 users) signal survives but data-starved + open-set rejection at chance. The honest two-sided scale answer ([docs/VERIFICATION.md](VERIFICATION.md), [nb 19](../notebooks/19_identification_at_scale_public.ipynb)). REPORT.md §6 now the full section (incl. the §6.1 contrastive-identity null).
 2. **Phase 9 — outcome telemetry, *spike now / execute later*.** ✅ **spike done (2026-06-14)** — `demoparser2` *does* pull per-tick view-angles + kills/damage/shots (validated on a real public `de_mirage` demo), and the demo↔recorder **clock-sync** is solved marker-free by cross-correlating recorder mouse-motion against demo view-angle-motion (recovers injected offsets to <1 sample, `peak_corr` self-validates and rejects mismatched pairs). Code: `pipeline/outcome/cs2_demo.py` + `scripts/parse_cs2_demo.py`; verdict in [docs/CHEAT_DATA_COLLECTION.md](CHEAT_DATA_COLLECTION.md#phase-9-feasibility-spike--cs2-outcome-telemetry--clock-sync-verdict--feasible). Remaining = let **dual-capture** sessions accumulate, then build the supervised detector + 4.1 re-attempt.
@@ -215,7 +215,7 @@ Chunk-level AUC ≥ 0.75 success criterion met for aimbot (0.78). Session-level 
 - [x] `docs/STREAMING.md` — architecture + plain-English aggregator math + worked example
 - [x] Demo GIF + PNG embedded in `docs/STREAMING.md` and the README hero
 
-**Key results (real data, 2026-05-30):** The aggregator math is correct (15 unit tests) and the streaming pipeline is end-to-end. On 18 real GTA sessions the **chunk-level LSTM-AE detector works** (aimbot AUC 0.79, triggerbot 0.93 — see `docs/ADVERSARIAL.md`). **However**, the *session-level combined risk* still does not beat the best individual detector: its session-level inputs are near-chance (≈ 0.50) and the isotonic calibrators are fit on only 18 legit sessions, so the combination saturates. Real data also exposed a **normalisation bug** (the streaming engine never applied per-session sens/DPI + polling-rate norm) — **fixed this round** via `SessionStreamState.configure_for_session`. Recalibrating / redesigning the aggregator is **Phase 4.1** (below).
+**Key results (real data, 2026-06-28):** The aggregator math is correct (15 unit tests) and the streaming pipeline is end-to-end. On 22 real GTA sessions the **chunk-level LSTM-AE detector works** (aimbot AUC 0.78, triggerbot 0.92 — see `docs/ADVERSARIAL.md`). **However**, the *session-level combined risk* still does not beat the best individual detector: its session-level inputs are near-chance (≈ 0.50) and the isotonic calibrators are fit on only 22 legit sessions, so the combination saturates. Real data also exposed a **normalisation bug** (the streaming engine never applied per-session sens/DPI + polling-rate norm) — **fixed this round** via `SessionStreamState.configure_for_session`. Recalibrating / redesigning the aggregator is **Phase 4.1** (below).
 
 ---
 
@@ -258,6 +258,17 @@ The first real GTA batch landed: **18 sessions, 3 players** (shotik 5, dninix 8,
 - [x] **Mock-data caveats updated** across `docs/ADVERSARIAL.md`, `docs/STREAMING.md`, `docs/LSTM_AE.md`, `README.md`, `CLAUDE.md`.
 
 **Open follow-up:** the session-level live-risk aggregator saturates on real data → tracked in [Phase 4.1](#phase-41--live-recorder--multi-user-backlog).
+
+## Second real batch — runbook re-run (2026-06-28)
+
+A 4th player landed: **+4 ropyk sessions** (driving / combat / free_roam / on_foot; distinct rig — DPI 900, ultrawide 3840×1600, claw/right), taking the legit set to **22 sessions, 4 players**. Caught + fixed a **100× sensitivity data-entry error** (`0.25` vs the others' `25.0`) before ingest — left in, the broken `norm_factor` would have made ropyk trivially separable by a pure normalisation artefact (raw mouse speed was already in shotik's range; only the `sensitivity` field was off). Full Recording Arrival Runbook re-run:
+
+- [x] **QC** — all 22 PASS.
+- [x] **`dvc repro`** — 4-class identification **test acc 0.717** (f1 0.732, 95% CI 0.60–0.83, 53 test windows); down from the 3-class 0.853 — a harder, more honest task. Confusion stays dominated by the same-hardware hydra↔dninix pair; ropyk is **not** trivially separable (13/20), evidence the normalisation removes the hardware artefact rather than masking it.
+- [x] **Drift** — ropyk vs the existing three: significant speed/accel shift (`reports/drift_ropyk_vs_existing.csv`) — genuine cross-individual + new-rig variation.
+- [x] **LSTM-AE retrained** on 22 legit sessions (1.70M events, best val_loss 0.565); chunk AUCs stable (aimbot 0.78, triggerbot 0.92, macro 0.61).
+- [x] **Synthetic set regenerated** (22 base → 132 hybrid) + benchmark and held-out re-run (classical detectors still at chance held-out); serving bundle + Phase-4 demo regenerated.
+- [x] **Docs/README refreshed** to 22 sessions / 4 players.
 
 ## Cheat-data collection — live signature harness (in progress)
 

@@ -21,8 +21,8 @@ works, what doesn't, and how we verified each.
 We build an end-to-end system for player identification and automation (cheat)
 detection from raw mouse/keyboard telemetry, and — more than the headline metrics
 — we report an honest account of *what survives scrutiny at small data scale*. On
-real gameplay (18 sessions, 3 players) a windowed-feature identifier reaches 0.85
-3-class accuracy, but we isolate a hardware confound and report the narrower,
+real gameplay (22 sessions, 4 players) a windowed-feature identifier reaches 0.72
+4-class accuracy, but we isolate a hardware confound and report the narrower,
 honest claim: **~0.75 on a same-hardware pair where only the human differs**. A
 chunk-level LSTM autoencoder on raw event sequences detects synthetic aimbot at
 **0.79 AUC** and triggerbot at **0.93**, where 30-second window features sit at
@@ -68,8 +68,8 @@ merely scores well once.
 
 ## 2. Data
 
-- **Real GTA V recordings — 18 sessions, 3 players** (shotik 5, dninix 8, hydra 5),
-  all 1000 Hz, mixed DPI (800/1600). Crucially, **two players (hydra, dninix) share
+- **Real GTA V recordings — 22 sessions, 4 players** (shotik 5, dninix 8, hydra 5, ropyk 4),
+  all 1000 Hz, mixed DPI (800/900/1600). Crucially, **two players (hydra, dninix) share
   one PC and settings** — the controlled pair where only the human varies (§5.1).
   This is the credibility ceiling (§9), and we treat all real-data numbers as
   directional, not production guarantees.
@@ -129,10 +129,12 @@ stops cheat-oriented features from trading against identification (§5.3).
 This is the section that distinguishes the report: each claim is paired with the
 check that validates (or bounds) it. → [docs/FINDINGS.md](FINDINGS.md)
 
-- **5.1 Hardware confound isolated.** 3-class ID scores **0.85** (95% CI 0.74–0.97;
-  the interval is wide because the test set is 34 windows, and we say so). But one
-  player sits on different hardware and is trivially separable, inflating the
-  number. Evaluating *just the same-hardware pair* gives **0.75** (vs 0.65
+- **5.1 Hardware confound isolated.** 4-class ID scores **0.72** (95% CI 0.60–0.83;
+  the interval is wide because the test set is 53 windows, and we say so). Two of the
+  four players share one PC; the other two are on their own rigs — one (shotik) is
+  trivially separable (a hardware tell that inflates the number), but the newest
+  (ropyk) is *not*, evidence the sens/DPI normalisation removes the artefact rather
+  than masking it. Evaluating *just the same-hardware pair* gives **0.75** (vs 0.65
   majority) — and SHAP attributes the separation to **timing/rhythm** features
   (`click_interval_std`, `keystroke_periodicity`, `burst_rate`), i.e. a behavioural
   fingerprint, not a hardware tell. The honest claim is the narrower one.
@@ -347,7 +349,7 @@ capacity, or `dt`) as the lever that moves small-N transfer.
 
 ## 9. Limitations & ethics
 
-- **Scale.** 3 players / 1 cheat recorder is the credibility ceiling; real-data CIs
+- **Scale.** 4 players / 1 cheat recorder is the credibility ceiling; real-data CIs
   are wide (§5.1) and all such numbers are directional. The public-corpus work (§6)
   is the answer to *"does it survive beyond 3 friends?"* — and its honest finding is
   that the **per-user data budget**, not capacity, binds.

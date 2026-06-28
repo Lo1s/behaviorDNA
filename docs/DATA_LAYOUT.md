@@ -8,7 +8,7 @@ can't contain SCM-tracked files, or `dvc add/commit` and CI's `dvc pull`/`repro`
 
 ```
 data/raw/                 (dvc pull to populate)
-  *.json          ← LEGIT recordings — the active identification dataset (18 GTA sessions)
+  *.json          ← LEGIT recordings — the active identification dataset (22 GTA sessions)
   cheat/          ← REAL cheat recordings (cheat_sim-injected)
   mock/           ← old mock/desktop batch (excluded)
   real_data/      ← earlier real batch (excluded)
@@ -22,7 +22,7 @@ legit-manifold models train/evaluate on legit play only, automatically:
 
 | Consumer | Reads | Effect of this layout |
 |---|---|---|
-| `pipeline/ingestion/run.py` → features → split → train (LightGBM identifier) | top-level `*.json` | identification = 18 legit sessions |
+| `pipeline/ingestion/run.py` → features → split → train (LightGBM identifier) | top-level `*.json` | identification = 22 legit sessions |
 | `scripts/train_lstm_ae.py` (LSTM-AE) | top-level `*.json` | legit-manifold AE trains on legit only |
 | `scripts/compare_architectures.py` `_load_legit_tensors` (LSTM/TCN/Transformer-AE) | top-level `*.json` | sequence AEs train on legit only |
 | `scripts/validate_recordings.py`, `dashboard/app.py` | top-level `*.json` | operate on legit |

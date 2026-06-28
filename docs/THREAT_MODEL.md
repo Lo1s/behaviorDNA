@@ -26,7 +26,7 @@ is **one layer of a defence-in-depth stack**, not a complete anti-cheat.
 | **Memory-only aim assistance** — reads game state, never moves the OS cursor | **No** | None at the OS-input layer | — | **Inherent blind spot** — needs memory/integrity scanning, a different sensor entirely | Out of scope (by sensor) |
 | **Account sharing / smurfing** — a different human plays the account | Potentially | Identity drift: kinematics stop matching the enrolled fingerprint | Player identification / open-set verification | impostor **EER 0.144** @ 10 users (Balabit); degrades with player count + thin enrollment | Implemented (identification track) |
 
-> AUCs are **chunk-level on synthetic cheats injected into 18 real GTA sessions** —
+> AUCs are **chunk-level on synthetic cheats injected into 22 real GTA sessions** —
 > the *approach proof*, small-N. Read them as "the signal exists and separates",
 > not as a production operating point ([ADVERSARIAL.md](ADVERSARIAL.md),
 > [FINDINGS.md](FINDINGS.md)). The EER is from the public Balabit corpus
